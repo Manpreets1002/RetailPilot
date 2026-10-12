@@ -1,0 +1,18 @@
+[project]
+name = "retailpilot"
+version = "0.1.0"
+description = "RetailPilot is an AI-powered retail intelligence platform that helps laptop retailers compare competitor prices, optimize profit margins, and make smarter pricing decisions while enabling customers to discover and compare laptops through an intelligent shopping assistant."
+readme = "README.md"
+authors = [
+    { name = "Manpreets1002", email = "bhatia.manpreet1224@gmail.com" },
+    { name = "kumargaurvit", email = "kumargaurvit@gmail.com" }    
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+retailpilot = "retailpilot:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
