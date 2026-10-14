@@ -1,0 +1,32 @@
+# RetailPilot dependencies (Python 3.13)
+# Install with: pip install -r requirements.txt
+
+# Backend
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+sqlalchemy
+psycopg[binary]
+alembic
+
+# AI agent
+google-adk
+google-genai
+
+# Frontend
+streamlit
+plotly
+
+# Data pipeline
+httpx
+beautifulsoup4
+pandas
+
+# Config and cloud
+python-dotenv
+google-cloud-secret-manager
+
+# Development and testing
+pytest
+ruff
