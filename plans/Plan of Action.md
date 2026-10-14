@@ -45,10 +45,13 @@ Keep it simple. No microservices, Kubernetes, or multi-agent setups before the d
 
 | Owner | Responsibilities |
 |---|---|
-| **Teammate A** — Backend, AI & deployment | FastAPI, PostgreSQL models, API contracts, ADK + Gemini agent, search/compare/profit tools, Cloud Run deployment |
-| **Teammate B** — Data & frontend | Permitted data collection, normalization, product matching, Streamlit dashboard and shopping UI, price charts |
+| Owner | Responsibilities |
+|---|---|
+| **Sarthak** — Backend | FastAPI, PostgreSQL models, API contracts, search/compare/profit tools, backend deployment (Docker, Cloud Run, Cloud SQL) |
+| **Gaurvit & Manpreet** — AI, data & frontend | ADK + Gemini agent and tools, assistant endpoint, data collection, normalization, product matching, Streamlit dashboard and shopping UI, price charts |
+| **Gaurvit** — Testing | Automated test suites (Step 6), manual data and AI QA (Step 10), final QA sign-off |
 
-Work independently against the shared API contracts and sample data, then integrate daily. Swap ownership if one person is clearly stronger in an area, but keep one owner per deliverable.
+Work independently against the shared API contracts and sample data, then integrate daily. Each deliverable has one accountable owner.
 
 ---
 
@@ -124,7 +127,7 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Done when:** the Gemini call, the ADK tool call, and the Cloud Run deploy have each succeeded once. Any blocker is found now.
 
-### Step 2: Backend core (Teammate A, Oct 14)
+### Step 2: Backend core (Sarthak, Oct 14)
 
 **Build:**
 - `db/models.py`: SQLAlchemy models for the tables above.
@@ -141,7 +144,7 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Done when:** endpoints return the sample data, and pytest covers the margin formulas with hand-computed values.
 
-### Step 3: Catalog and matching (Teammate B, Oct 14)
+### Step 3: Catalog and matching (Gaurvit & Manpreet, Oct 14)
 
 **Build:**
 - `pipeline/normalize.py`: cleans raw titles (lowercase, strip marketing words) and extracts brand, model number, CPU, RAM, storage, and screen size with regexes.
@@ -153,7 +156,7 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Done when:** the matcher produces the expected matches on sample titles and leaves ambiguous listings unmatched. These are pytest cases.
 
-### Step 4: Agent with tools (Teammate A, Oct 14)
+### Step 4: Agent with tools (Gaurvit & Manpreet, Oct 14)
 
 **Build:**
 - `agent/tools.py`: plain Python functions with type hints and docstrings, which ADK uses as tool schemas:
@@ -165,7 +168,7 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Done when:** a test sends "laptop under $1000 with 16 GB RAM," the logged tool calls include `search_laptops`, and the answer's prices match the tool output.
 
-### Step 5: Dashboard and shopping UI (Teammate B, Oct 14)
+### Step 5: Dashboard and shopping UI (Gaurvit & Manpreet, Oct 14)
 
 **Build:**
 - `frontend/dashboard.py` (retailer view): product table, price comparison for the selected product, a history chart with one line per retailer, and a form for unit cost and target price that calls `/api/profit/calculate`.
@@ -176,7 +179,31 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Checkpoint (end of Oct 14):** matching, the agent, and the UI all run locally with the shared sample records.
 
-### Step 6: Integrate (Oct 15)
+### Step 6: Automated test suites (Gaurvit, Oct 14–15)
+
+Write tests alongside each component, not at the end. Every step after this one runs the suite before merging.
+
+**Build:**
+- `tests/unit/`: pure-logic tests with no database or network.
+  - `normalize.py`: title cleaning and spec extraction on sample titles.
+  - `matcher.py`: exact model-number match, fingerprint match, and unmatched ambiguous listings.
+  - `profit.py`: margin formulas against hand-computed values.
+  - `search.py`: budget, RAM, storage, and use-case filters.
+- `tests/integration/`: FastAPI endpoints through `TestClient`, backed by a PostgreSQL test database (the same engine as production) loaded from `data/sample/`. Cover success, empty results, invalid input (422), and missing products (404).
+- `tests/agent/`: tool-calling tests with a mocked Gemini model, so results are deterministic. Check that the right tool is called with the right arguments, and that tool errors are handled.
+- `tests/frontend/`: smoke tests with Streamlit's `AppTest`, confirming both pages render and the form submits.
+- `tests/live/` (marked `@pytest.mark.live`): a few end-to-end tests against the real Gemini API. Skipped unless the API key is set, so the default run needs no network.
+- Shared fixtures in `tests/conftest.py`: database session, sample data loader, and the mocked agent model.
+- Add `pytest` and `pytest-cov` to `requirements.txt`.
+
+**Commands:**
+- `uv run pytest`: full suite (live tests skipped without a key).
+- `uv run pytest -m "not live"`: fast local run.
+- `uv run pytest --cov=retailpilot --cov-report=term-missing`: coverage report. Aim for at least 80% on `services/` and `pipeline/`.
+
+**Done when:** the suite runs in one command, passes on a clean clone, and covers every item above. A failing test blocks the step from being marked done.
+
+### Step 7: Integrate (Oct 15)
 
 **Build:**
 - Point the Streamlit `api_client` at the real FastAPI server.
@@ -185,7 +212,7 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Done when:** a search in the UI returns the same numbers as a direct API call.
 
-### Step 7: Complete the two core flows (Oct 15)
+### Step 8: Complete the two core flows (Oct 15)
 
 - **Customer flow:** budget and needs → `search_laptops` → comparison card → assistant explanation with source links.
 - **Retailer flow:** choose product → enter cost → `calculate_margin` → assistant explains the result using the returned numbers.
@@ -194,7 +221,7 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Done when:** each flow runs without manual steps, and the assistant's explanation contains only numbers that appear in the tool output.
 
-### Step 8: Deploy (Oct 15)
+### Step 9: Deploy (Sarthak, Oct 15)
 
 **Build:**
 - A `Dockerfile` that runs FastAPI and Streamlit (one container if possible).
@@ -206,7 +233,9 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Checkpoint (end of Oct 15):** the public prototype works. **Feature freeze.**
 
-### Step 9: Test data and AI behavior (Oct 16)
+### Step 10: Test data and AI behavior (Gaurvit, Oct 16)
+
+Builds on the automated suite from Step 6. These checks need human judgment and real data.
 
 - **Matching:** label 30 to 50 listings by hand and compute precision and recall.
 - **Math:** check five margin scenarios against a spreadsheet.
@@ -215,23 +244,25 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 
 **Done when:** each test has a recorded result. Report the numbers, even if imperfect.
 
-### Step 10: Fix and stabilize (Oct 16–17)
+### Step 11: Fix and stabilize (Oct 16–17)
 
 - Fix deployment, dependency, and config errors first.
 - Fix critical bugs only. Anything else waits.
+- Add a regression test for every bug fixed, and run the full suite before each deploy.
 - Pin dependency versions in `requirements.txt` after the last working install (`pip freeze`), and confirm `uv.lock` matches.
 
 **Done when:** a fresh clone runs setup from this README on a clean machine.
 
-### Step 11: Submission materials (Oct 17)
+### Step 12: Submission materials (Oct 17)
 
 - Architecture diagram (Streamlit → FastAPI → ADK/Gemini → PostgreSQL).
-- Solution proposal, drawing on the Metrics section below and the Step 9 numbers.
+- Solution proposal, drawing on the Metrics section below and the Step 10 numbers.
+- Test results from the suite (pass count and coverage) for the proposal.
 - Setup and deploy steps in this README, filled in from what was actually run.
 - Demo video of three minutes or less, following the customer and retailer flows.
 - Click every public link and open every submission artifact.
 
-### Step 12: Submit (Oct 18)
+### Step 13: Submit (Oct 18)
 
 - Check the official submission checklist line by line.
 - Load the live URL once and run both flows.
@@ -250,6 +281,7 @@ Every price returned by the API must carry `source_url` and `observed_at`.
 - [ ] Deployed frontend reaches the backend and database
 - [ ] No secrets or API keys in the repository
 - [ ] Public URL and submission links work
+- [ ] Automated test suite passes on a clean clone
 - [ ] Demo and proposal describe only implemented features
 
 ---
