@@ -1,0 +1,12 @@
+.git
+.claude
+.venv
+plans
+**/__pycache__
+**/*.pyc
+**/.env
+.env
+**/django_db.sqlite3
+src/retailpilot/frontend/staticfiles
+**/*.log
+**/tests

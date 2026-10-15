@@ -6,3 +6,6 @@
 
 # Cached Files
 __pycache__
+# Django local database and collected static files
+django_db.sqlite3
+staticfiles/

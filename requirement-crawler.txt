@@ -1,0 +1,5 @@
+curl_cffi>=0.16
+beautifulsoup4>=4.15
+lxml>=6
+pymongo>=4.19
+pydantic-settings>=2.16

@@ -1,0 +1,64 @@
+{% extends "web/base.html" %}
+{% block title %}RetailPilot · Welcome{% endblock %}
+{% block body_class %}landing{% endblock %}
+{% block content %}
+<main class="landing">
+  <section class="hero">
+    <h1>RetailPilot</h1>
+    <p>Smarter pricing for retailers. Smarter picks for shoppers. Built on public Amazon India listings,
+    refreshed by our crawler and explained by an AI assistant that shows its evidence.</p>
+  </section>
+
+  <section class="block">
+    <h2>What is RetailPilot?</h2>
+    <p>RetailPilot reads prices, specifications, delivery dates and customer reviews from public listings in
+    cities across India. It turns that data into two products: a dashboard for retailers, and a shopping
+    assistant for customers. Both answer in plain language and point to the listings behind every number.</p>
+  </section>
+
+  <section class="block">
+    <h2>How we can help you</h2>
+    <div class="cards">
+      <article class="card">
+        <h3>For retailers</h3>
+        <p>See where your price sits against competitors in your city and subcategory. Compare margins at
+        match-lowest, hold and raise scenarios from your own landed cost. Track price trends, read what customers
+        say about your products, and check how fresh the data is.</p>
+      </article>
+      <article class="card">
+        <h3>For customers</h3>
+        <p>Tell us what you want to buy. We show the best-value picks in that category for your city today,
+        weighing ratings, review volume and price. Then ask follow-up questions: specs, pros and cons,
+        comparisons, and what past prices looked like.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>How it works</h2>
+    <div class="steps">
+      <div><span class="step">1 · Collect</span><p>A crawler records prices, delivery dates, specs and reviews for each city, with timestamps.</p></div>
+      <div><span class="step">2 · Analyse</span><p>Pricing, margin and sentiment tools calculate results from that data, never from guesses.</p></div>
+      <div><span class="step">3 · Explain</span><p>The assistant answers with the numbers, the date they were observed, and what it could not find.</p></div>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Who are you?</h2>
+    <div class="cards">
+      <div class="role">
+        <h3>I sell laptops and electronics</h3>
+        <p>Open the retailer dashboard: competitor prices, margins, sentiment and an assistant that answers from your data.</p>
+        <a class="btn btn-light" href="{% url 'retailer' %}">Continue as retailer</a>
+      </div>
+      <div class="role">
+        <h3>I want to buy something</h3>
+        <p>Tell us what interests you and get today's best picks, then ask the assistant anything about them.</p>
+        <a class="btn btn-light" href="{% url 'customer' %}">Continue as customer</a>
+      </div>
+    </div>
+    <p class="fine">Prices come from public listings and are only valid for the day they were observed.
+    RetailPilot recommends and explains; it does not change prices or buy anything.</p>
+  </section>
+</main>
+{% endblock %}
