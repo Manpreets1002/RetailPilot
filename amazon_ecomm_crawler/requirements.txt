@@ -1,0 +1,6 @@
+curl_cffi
+beautifulsoup4
+lxml
+pymongo
+python-dotenv
+pytest

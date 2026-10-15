@@ -1,0 +1,14 @@
+{
+  "cities": [
+    {"slug": "delhi",     "name": "New Delhi", "state": "Delhi",         "pincode": "110001"},
+    {"slug": "mumbai",    "name": "Mumbai",    "state": "Maharashtra",   "pincode": "400001"},
+    {"slug": "bengaluru", "name": "Bengaluru", "state": "Karnataka",     "pincode": "560001"},
+    {"slug": "hyderabad", "name": "Hyderabad", "state": "Telangana",     "pincode": "500001"},
+    {"slug": "chennai",   "name": "Chennai",   "state": "Tamil Nadu",    "pincode": "600001"},
+    {"slug": "kolkata",   "name": "Kolkata",   "state": "West Bengal",   "pincode": "700001"},
+    {"slug": "pune",      "name": "Pune",      "state": "Maharashtra",   "pincode": "411001"},
+    {"slug": "ahmedabad", "name": "Ahmedabad", "state": "Gujarat",       "pincode": "380001"},
+    {"slug": "gurugram",  "name": "Gurugram",  "state": "Haryana",       "pincode": "122001"},
+    {"slug": "noida",     "name": "Noida",     "state": "Uttar Pradesh", "pincode": "201301"}
+  ]
+}

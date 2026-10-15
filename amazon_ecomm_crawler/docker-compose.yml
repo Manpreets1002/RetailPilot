@@ -1,0 +1,14 @@
+# Local MongoDB for the crawler. Uses port 27018 so it doesn't clash with
+# any other Mongo already running on 27017.
+services:
+  mongo:
+    image: mongo:7
+    container_name: amazon-crawler-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - amazon_crawler_mongo:/data/db
+    restart: unless-stopped
+
+volumes:
+  amazon_crawler_mongo:
