@@ -1,0 +1,73 @@
+{% extends "web/base.html" %}
+{% load static %}
+{% block title %}RetailPilot · Shop{% endblock %}
+{% block body_class %}customer theme-light{% endblock %}
+{% block content %}
+{% csrf_token %}
+<div class="shop" id="shop" data-shopper="{{ shopper_id }}">
+  <aside class="sidebar" id="sidebar">
+    <div class="side-top">
+      <a class="brand" href="{% url 'landing' %}">RetailPilot</a>
+      <button class="btn btn-block" id="new-chat" type="button">＋ New chat</button>
+    </div>
+    <div class="side-label">Your chats</div>
+    <div id="thread-list" class="thread-list"><p class="fine">Loading…</p></div>
+    <div class="side-foot">
+      <label>Delivery city
+        <select id="city"></select>
+      </label>
+      <button class="btn btn-ghost btn-block" id="theme-toggle" type="button">Dark mode</button>
+    </div>
+  </aside>
+
+  <section class="main">
+    <header class="topbar">
+      <span class="topbar-title">RetailPilot</span>
+      <button class="info-btn" id="shown-btn" type="button" aria-label="Products we have shown you" title="Products we have shown you">ⓘ</button>
+    </header>
+
+    <div id="home" class="home">
+      <h1 class="greet">What do you want to buy today?</h1>
+      <p class="fine">Pick a category to see today's best-value picks, or type what interests you below to start a chat.</p>
+      <div class="picker">
+        <select id="category"></select>
+        <button class="btn" id="show-picks" type="button">Show best picks</button>
+      </div>
+      <p id="picks-note" class="note" hidden></p>
+      <div id="picks" class="picks"></div>
+      <div class="picks-actions" id="picks-actions" hidden>
+        <button class="btn btn-ghost" id="more-picks" type="button">Show 5 new picks</button>
+      </div>
+    </div>
+
+    <div id="chat" class="chat" hidden>
+      <div id="messages" class="messages"></div>
+      <div id="pending" class="note" hidden></div>
+    </div>
+
+    <form id="chat-form" class="chat-input">
+      <input id="chat-input" type="text" maxlength="2000" autocomplete="off" placeholder="Ask about a product, price or pros and cons">
+      <button class="btn" type="submit">Send</button>
+    </form>
+  </section>
+</div>
+
+<div class="drawer" id="shown-drawer" hidden>
+  <div class="drawer-card">
+    <div class="drawer-head"><b>Shown to you</b><button class="btn btn-ghost" id="close-drawer" type="button">Close</button></div>
+    <div id="shown-list"></div>
+  </div>
+</div>
+
+<div class="nudge" id="nudge" hidden>
+  <b>Still looking?</b>
+  <div id="nudge-body"></div>
+  <div class="nudge-actions">
+    <button class="btn" id="nudge-buy" type="button">I want this</button>
+    <button class="btn btn-ghost" id="nudge-dismiss" type="button">Dismiss</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'web/js/customer.js' %}"></script>
+{% endblock %}

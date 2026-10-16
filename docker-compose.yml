@@ -1,0 +1,72 @@
+name: retailpilot
+
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27018:27017"
+    volumes:
+      - amazon_crawler_mongo:/data/db
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      target: backend
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      BACKEND_URL: http://backend:8000
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mongo
+      - backend
+    restart: unless-stopped
+
+  crawler:
+    build:
+      context: .
+      target: crawler
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+    depends_on:
+      - mongo
+    profiles: ["tools"]
+
+  mcp:
+    build:
+      context: .
+      target: mcp
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MCP_TRANSPORT: http
+      MCP_PORT: "8001"
+    ports:
+      - "8001:8001"
+    depends_on:
+      - mongo
+    restart: unless-stopped
+    profiles: ["tools"]
+
+volumes:
+  amazon_crawler_mongo:
+    external: true
+    name: amazon_ecomm_crawler_amazon_crawler_mongo
