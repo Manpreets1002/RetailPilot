@@ -152,6 +152,17 @@ def price_history(data: dict, asin: str, city: str, days: int) -> list[tuple[str
     return sorted(per_day.items())
 
 
+def category_overview(data: dict, city: str) -> list[dict]:
+    groups: dict[str, list[float]] = {}
+    for o in data["offers"]:
+        if o["city"] == city:
+            groups.setdefault(o["category"], []).append(o["price"])
+    return [
+        {"category": name, "products": len(prices), "avg_price": round(sum(prices) / len(prices))}
+        for name, prices in sorted(groups.items())
+    ]
+
+
 def gap_matrix(data: dict, category: str) -> tuple[list[str], list[str], list[list[float | None]]]:
     by_product: dict[str, dict[str, float]] = {}
     titles: dict[str, str] = {}

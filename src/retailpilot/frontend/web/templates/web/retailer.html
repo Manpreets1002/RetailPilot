@@ -6,17 +6,24 @@
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 {% endblock %}
 {% block content %}
-{% csrf_token %}
-<main class="dash">
-  <header class="dash-top">
-    <a class="brand" href="{% url 'landing' %}">RetailPilot</a>
-    <span>Retailer dashboard</span>
-  </header>
+<nav class="navbar">
+  <a class="brand" href="{% url 'landing' %}">RetailPilot</a>
+  <div class="nav-links">
+    <span class="nav-item active">Retailer dashboard</span>
+    <a class="nav-item" href="{% url 'customer' %}">Customer shop</a>
+  </div>
+</nav>
 
+<main class="page">
   {% if error %}
-    <div class="note">{{ error }}</div>
+    <div class="alert">{{ error }}</div>
   {% else %}
-  <form class="filters" method="get" action="{% url 'retailer' %}">
+  <div class="page-head">
+    <h1>Retailer dashboard</h1>
+    <p class="fine">Choose a city, category and product below, then use the tabs to explore. Need an explanation? Click the chat button at the bottom right.</p>
+  </div>
+
+  <form class="filters card" method="get" action="{% url 'retailer' %}">
     <label>City
       <select name="city" onchange="this.form.submit()">
         {% for c in cities %}<option value="{{ c.slug }}" {% if c.slug == city %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
@@ -40,7 +47,7 @@
 
   <section class="kpis">
     <div class="kpi"><span>Current price</span><b>₹{{ sel.price|floatformat:0 }}</b>{% if sel.mrp %}<small>MRP ₹{{ sel.mrp|floatformat:0 }}</small>{% endif %}</div>
-    <div class="kpi"><span>Lowest peer</span><b>{% if lowest %}₹{{ lowest|floatformat:0 }}{% else %}–{% endif %}</b>{% if gap_pct is not None %}<small>{{ gap_pct }}% vs you</small>{% endif %}</div>
+    <div class="kpi"><span>Lowest competitor</span><b>{% if lowest %}₹{{ lowest|floatformat:0 }}{% else %}–{% endif %}</b>{% if gap_pct is not None %}<small>you are {{ gap_pct }}% vs lowest</small>{% endif %}</div>
     <div class="kpi"><span>Rating</span><b>{% if sel.rating %}{{ sel.rating|floatformat:1 }} ★{% else %}–{% endif %}</b><small>{{ sel.rating_count|default:"" }} ratings</small></div>
     <div class="kpi"><span>Positive reviews</span><b>{% if sentiment %}{{ sentiment.positive_pct|floatformat:0 }}%{% else %}–{% endif %}</b></div>
     <div class="kpi"><span>Listing observed</span><b>{% if sel.observed_at %}{{ sel.observed_at|date:"d M H:i" }}{% else %}–{% endif %}</b></div>
@@ -48,138 +55,173 @@
 
   <p class="product-line"><b>{{ sel.title }}</b> · {{ sel.brand|default:"" }} · <a href="https://www.amazon.in/dp/{{ asin }}" target="_blank" rel="noopener">Open on Amazon.in</a></p>
 
-  <div class="dash-grid">
-  <div class="dash-main">
   <nav class="tabs" role="tablist">
-    <button class="tab active" data-tab="prices">Prices &amp; competition</button>
-    <button class="tab" data-tab="margin">Margin scenarios</button>
-    <button class="tab" data-tab="sentiment">Ratings &amp; sentiment</button>
-    <button class="tab" data-tab="basket">Market basket (research)</button>
-    <button class="tab" data-tab="health">Data health</button>
+    <button class="tab active" data-tab="overview" type="button">Overview</button>
+    <button class="tab" data-tab="pricing" type="button">Pricing &amp; competition</button>
+    <button class="tab" data-tab="margin" type="button">Margin</button>
+    <button class="tab" data-tab="sentiment" type="button">Reviews &amp; sentiment</button>
+    <button class="tab" data-tab="basket" type="button">Market basket</button>
+    <button class="tab" data-tab="health" type="button">Data health</button>
   </nav>
 
-  <section class="panel" data-panel="prices">
-    <h3>Price trend · last {{ days }} days · {{ city }}</h3>
-    {% if trend_json %}<div id="trend"></div>{% else %}<p class="fine">No price history in this window yet.</p>{% endif %}
+  <section class="panel" data-panel="overview">
+    <div class="card insights">
+      <h3>Key insights</h3>
+      <ul>
+        {% for tip in insights %}<li>{{ tip }}</li>{% empty %}<li>No insights yet for this selection.</li>{% endfor %}
+      </ul>
+    </div>
+    <div class="chart-grid">
+      <div class="card">
+        <h3>Price trend · last {{ days }} days</h3>
+        {% if charts.trend %}<div id="chart-trend" class="chart"></div>{% else %}<p class="fine">No price history in this window yet.</p>{% endif %}
+      </div>
+      <div class="card">
+        <h3>Average price by subcategory · {{ city }}</h3>
+        <div id="chart-category" class="chart"></div>
+      </div>
+      <div class="card">
+        <h3>Your price vs competitors</h3>
+        {% if charts.competitor %}<div id="chart-competitor" class="chart"></div>{% else %}<p class="fine">No competing products in this subcategory and city.</p>{% endif %}
+      </div>
+      <div class="card">
+        <h3>Review sentiment mix</h3>
+        {% if charts.sentiment %}<div id="chart-sentiment" class="chart"></div>{% else %}<p class="fine">No stored reviews for this product.</p>{% endif %}
+      </div>
+    </div>
+  </section>
 
-    <h3>Competitor prices in this city</h3>
-    <table class="table">
-      <thead><tr><th>Product</th><th>Price</th><th>vs you</th><th>Seller</th><th>Delivery</th></tr></thead>
-      <tbody>
-        {% for p in peers %}
-        <tr><td>{{ p.title|truncatechars:60 }}</td><td>₹{{ p.price|floatformat:0 }}</td>
-            <td>{{ p.gap }}%</td><td>{{ p.seller|default:"–" }}</td><td>{{ p.delivery_date|default:"–" }}</td></tr>
-        {% empty %}<tr><td colspan="5">No competing products in this subcategory and city.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-
-    <h3>Pricing-gap heatmap · subcategory × city</h3>
-    <p class="fine">Each cell is how far a city's price sits from that product's median across cities.</p>
-    {% if heatmap_json %}<div id="heatmap"></div>{% else %}<p class="fine">Needs the same products priced in at least two cities. Only one city is crawled so far.</p>{% endif %}
+  <section class="panel" data-panel="pricing" hidden>
+    <div class="card">
+      <h3>Competitor prices in this city</h3>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Product</th><th>Price</th><th>vs you</th><th>Seller</th><th>Delivery</th></tr></thead>
+          <tbody>
+            {% for p in peers %}
+            <tr><td>{{ p.title|truncatechars:60 }}</td><td>₹{{ p.price|floatformat:0 }}</td>
+                <td>{{ p.gap }}%</td><td>{{ p.seller|default:"–" }}</td><td>{{ p.delivery_date|default:"–" }}</td></tr>
+            {% empty %}<tr><td colspan="5">No competing products in this subcategory and city.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Pricing-gap heatmap · subcategory × city</h3>
+      <p class="fine">Each cell is how far a city's price sits from that product's median across cities. Red means above the median, blue means below.</p>
+      {% if charts.heatmap %}<div id="chart-heatmap" class="chart"></div>{% else %}<p class="fine">Needs the same products priced in at least two cities. Only one city is crawled so far.</p>{% endif %}
+    </div>
   </section>
 
   <section class="panel" data-panel="margin" hidden>
-    <h3>Your landed cost and margin</h3>
-    <p class="fine">Enter your own costs. Prices come from the crawl; costs never do.</p>
-    <form class="filters" method="get" action="{% url 'retailer' %}">
-      <input type="hidden" name="city" value="{{ city }}">
-      <input type="hidden" name="category" value="{{ category }}">
-      <input type="hidden" name="asin" value="{{ asin }}">
-      <input type="hidden" name="days" value="{{ days }}">
-      <label>Unit cost (₹)<input type="number" step="0.01" name="unit_cost" value="{{ unit_cost }}"></label>
-      <label>Shipping in (₹)<input type="number" step="0.01" name="shipping" value="{{ shipping }}"></label>
-      <label>Duty (%)<input type="number" step="0.01" name="duty" value="{{ duty }}"></label>
-      <label>GST (%)<input type="number" step="0.01" name="gst" value="{{ gst }}"></label>
-      <label>Marketplace fees (%)<input type="number" step="0.01" name="fees" value="{{ fees }}"></label>
-      <button class="btn" type="submit">Calculate</button>
-    </form>
+    <div class="card">
+      <h3>Your landed cost and margin</h3>
+      <p class="fine">Enter your own costs. Prices come from the crawl; costs never do.</p>
+      <form class="filters" method="get" action="{% url 'retailer' %}">
+        <input type="hidden" name="city" value="{{ city }}">
+        <input type="hidden" name="category" value="{{ category }}">
+        <input type="hidden" name="asin" value="{{ asin }}">
+        <input type="hidden" name="days" value="{{ days }}">
+        <label>Unit cost (₹)<input type="number" step="0.01" name="unit_cost" value="{{ unit_cost }}"></label>
+        <label>Shipping in (₹)<input type="number" step="0.01" name="shipping" value="{{ shipping }}"></label>
+        <label>Duty (%)<input type="number" step="0.01" name="duty" value="{{ duty }}"></label>
+        <label>GST (%)<input type="number" step="0.01" name="gst" value="{{ gst }}"></label>
+        <label>Marketplace fees (%)<input type="number" step="0.01" name="fees" value="{{ fees }}"></label>
+        <button class="btn" type="submit">Calculate</button>
+      </form>
+    </div>
     {% if scenarios %}
-      <p>Landed cost: <b>₹{{ landed|floatformat:0 }}</b> · GST {{ gst }}% is removed from the shelf price before margin.</p>
-      <table class="table">
-        <thead><tr><th>Scenario</th><th>Shelf price</th><th>Margin</th><th>Contribution</th><th>Breakeven</th><th>Peers cheaper</th><th>Risk</th></tr></thead>
-        <tbody>
-          {% for s in scenarios %}
-          <tr><td>{{ s.scenario }}</td><td>₹{{ s.price|floatformat:0 }}</td><td>{{ s.margin_pct|floatformat:1 }}%</td>
-              <td>₹{{ s.contribution|floatformat:0 }}</td><td>₹{{ s.breakeven_price|floatformat:0 }}</td>
-              <td>{{ s.peers_cheaper }}</td><td>{{ s.risk }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="chart-grid">
+      <div class="card">
+        <h3>Contribution by scenario</h3>
+        <div id="chart-margin" class="chart"></div>
+      </div>
+      <div class="card">
+        <p>Landed cost: <b>₹{{ landed|floatformat:0 }}</b> · GST {{ gst }}% is removed from the shelf price before margin.</p>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Scenario</th><th>Shelf price</th><th>Margin</th><th>Contribution</th><th>Breakeven</th><th>Peers cheaper</th><th>Risk</th></tr></thead>
+            <tbody>
+              {% for s in scenarios %}
+              <tr><td>{{ s.scenario }}</td><td>₹{{ s.price|floatformat:0 }}</td><td>{{ s.margin_pct|floatformat:1 }}%</td>
+                  <td>₹{{ s.contribution|floatformat:0 }}</td><td>₹{{ s.breakeven_price|floatformat:0 }}</td>
+                  <td>{{ s.peers_cheaper }}</td><td>{{ s.risk }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
     {% else %}
-      <p class="fine">Enter a unit cost above to see the scenarios.</p>
+      <div class="card"><p class="fine">Enter a unit cost above to see the scenarios.</p></div>
     {% endif %}
   </section>
 
   <section class="panel" data-panel="sentiment" hidden>
-    <h3>Review sentiment</h3>
-    {% if sentiment %}
-      <p>{{ sentiment.reviews }} reviews · average {{ sentiment.avg_rating|floatformat:1 }} ★ · {{ sentiment.positive_pct|floatformat:0 }}% positive · {{ sentiment.negative_pct|floatformat:0 }}% negative</p>
-      <div class="two">
-        <div><h4>What drives positive reviews</h4><p>{{ pos_terms|slice:":8"|join:", " }}</p></div>
-        <div><h4>What drives negative reviews</h4><p>{{ neg_terms|slice:":8"|join:", " }}</p></div>
-      </div>
-      <h4>Sample reviews for this product</h4>
-      {% for r in sentiment.samples %}
-        <div class="review"><b>{{ r.rating|floatformat:0 }}★ · {{ r.sentiment }}</b> {{ r.title|default:"" }}<br>{{ r.body|default:""|truncatechars:280 }}</div>
-      {% empty %}<p class="fine">No stored reviews for this product.</p>{% endfor %}
-      {% if sentiment_accuracy %}<p class="fine">Model agreement with star ratings (5-fold CV): {{ sentiment_accuracy|floatformat:2 }}. Labels come from ratings, not human judgement.</p>{% endif %}
-    {% else %}
-      <p class="fine">No reviews stored yet.</p>
-    {% endif %}
+    <div class="card">
+      <h3>Review sentiment</h3>
+      {% if sentiment %}
+        <p>{{ sentiment.reviews }} reviews · average {{ sentiment.avg_rating|floatformat:1 }} ★ · {{ sentiment.positive_pct|floatformat:0 }}% positive · {{ sentiment.negative_pct|floatformat:0 }}% negative</p>
+        <div class="two">
+          <div><h4>What drives positive reviews</h4><p>{{ pos_terms|slice:":8"|join:", " }}</p></div>
+          <div><h4>What drives negative reviews</h4><p>{{ neg_terms|slice:":8"|join:", " }}</p></div>
+        </div>
+        <h4>Sample reviews for this product</h4>
+        {% for r in sentiment.samples %}
+          <div class="review"><b>{{ r.rating|floatformat:0 }}★ · {{ r.sentiment }}</b> {{ r.title|default:"" }}<br>{{ r.body|default:""|truncatechars:280 }}</div>
+        {% empty %}<p class="fine">No stored reviews for this product.</p>{% endfor %}
+        {% if sentiment_accuracy %}<p class="fine">Model agreement with star ratings (5-fold CV): {{ sentiment_accuracy|floatformat:2 }}. Labels come from ratings, not human judgement.</p>{% endif %}
+      {% else %}
+        <p class="fine">No reviews stored yet.</p>
+      {% endif %}
+    </div>
   </section>
 
   <section class="panel" data-panel="basket" hidden>
-    <h3>Market basket analysis · research</h3>
-    <p class="fine">Proxy baskets: products one named customer reviewed. Reviews are not purchases. Lift above 1 means the pair appears together more than chance.</p>
-    <table class="table">
-      <thead><tr><th>If reviewed</th><th>Also reviewed</th><th>Pairs</th><th>Support</th><th>Confidence</th><th>Lift</th></tr></thead>
-      <tbody>
-        {% for r in basket %}
-        <tr><td>{{ r.antecedent|truncatechars:45 }}</td><td>{{ r.consequent|truncatechars:45 }}</td><td>{{ r.pair_count }}</td><td>{{ r.support }}</td><td>{{ r.confidence }}</td><td>{{ r.lift }}</td></tr>
-        {% empty %}<tr><td colspan="6">Not enough named reviewers who reviewed two or more products.</td></tr>{% endfor %}
-      </tbody>
-    </table>
+    <div class="card">
+      <h3>Market basket analysis · research</h3>
+      <p class="fine">Proxy baskets: products one named customer reviewed. Reviews are not purchases. Lift above 1 means the pair appears together more than chance.</p>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>If reviewed</th><th>Also reviewed</th><th>Pairs</th><th>Support</th><th>Confidence</th><th>Lift</th></tr></thead>
+          <tbody>
+            {% for r in basket %}
+            <tr><td>{{ r.antecedent|truncatechars:45 }}</td><td>{{ r.consequent|truncatechars:45 }}</td><td>{{ r.pair_count }}</td><td>{{ r.support }}</td><td>{{ r.confidence }}</td><td>{{ r.lift }}</td></tr>
+            {% empty %}<tr><td colspan="6">Not enough named reviewers who reviewed two or more products.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
   <section class="panel" data-panel="health" hidden>
-    <h3>Data health</h3>
-    <section class="kpis">
+    <div class="kpis">
       <div class="kpi"><span>Products</span><b>{{ health.products }}</b></div>
       <div class="kpi"><span>City offers</span><b>{{ health.offers }}</b></div>
       <div class="kpi"><span>Price points (window)</span><b>{{ health.history_points }}</b></div>
       <div class="kpi"><span>Reviews</span><b>{{ health.reviews }}</b></div>
       <div class="kpi"><span>Stale offers (&gt;{{ health.stale_hours|floatformat:0 }} h)</span><b>{{ health.stale }}</b></div>
-    </section>
-    <h4>Recent crawl runs</h4>
-    <table class="table">
-      <thead><tr><th>Started</th><th>Finished</th><th>Status</th><th>Stats</th></tr></thead>
-      <tbody>
-        {% for r in health.runs %}
-        <tr><td>{{ r.started_at|date:"d M H:i" }}</td><td>{{ r.finished_at|date:"d M H:i"|default:"–" }}</td><td>{{ r.status }}</td>
-            <td>{% for k, v in r.stats.items %}{{ k }}: {{ v }}{% if not forloop.last %}, {% endif %}{% endfor %}</td></tr>
-        {% empty %}<tr><td colspan="4">No crawl runs recorded.</td></tr>{% endfor %}
-      </tbody>
-    </table>
+    </div>
+    <div class="card">
+      <h3>Recent crawl runs</h3>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Started</th><th>Finished</th><th>Status</th><th>Stats</th></tr></thead>
+          <tbody>
+            {% for r in health.runs %}
+            <tr><td>{{ r.started_at|date:"d M H:i" }}</td><td>{{ r.finished_at|date:"d M H:i"|default:"–" }}</td><td>{{ r.status }}</td>
+                <td>{% for k, v in r.stats.items %}{{ k }}: {{ v }}{% if not forloop.last %}, {% endif %}{% endfor %}</td></tr>
+            {% empty %}<tr><td colspan="4">No crawl runs recorded.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
-  </div>
-  <aside class="dash-chat" id="assistant" data-context="I am looking at {{ sel.title }} (ASIN {{ asin }}) in {{ city }}.">
-    <h3>Ask RetailPilot</h3>
-    <p class="fine">Answers come from the same data as this dashboard, and say when something is missing.</p>
-    <div id="retailer-messages" class="messages"></div>
-    <form id="retailer-form" class="chat-input">
-      <input id="retailer-input" type="text" maxlength="2000" placeholder="Ask about this product, a price or your margin" autocomplete="off">
-      <button class="btn" type="submit">Send</button>
-    </form>
-  </aside>
-  </div>
+  {{ charts|json_script:"charts" }}
   {% endif %}
 </main>
 {% endblock %}
 {% block scripts %}
-<script>
-  const TREND = {{ trend_json|default:"null"|safe }};
-  const HEATMAP = {{ heatmap_json|default:"null"|safe }};
-</script>
 <script src="{% static 'web/js/retailer.js' %}"></script>
 {% endblock %}

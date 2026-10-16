@@ -1,13 +1,25 @@
 import json
 import uuid
 
-from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
+import plotly.graph_objects as go
 
 from web import analytics
 from web.backend import BackendError, get, post
+
+PURPLE = "#714B67"
+TEAL = "#00A09D"
+AMBER = "#F29F05"
+RED = "#E4572E"
+PALETTE = [PURPLE, TEAL, AMBER, RED, "#5B8DEF", "#8E9AAF"]
+
+CUSTOMER_ASSISTANT = {
+    "role": "customer",
+    "citySelect": "city",
+    "greeting": "Hi! Ask me about a product's price, its specs, pros and cons, or how past prices looked.",
+}
 
 
 def landing(request: HttpRequest):
@@ -21,8 +33,110 @@ def _float(value: str | None, default: float) -> float:
         return default
 
 
+# ----------------------------------------------------------------- charts (Plotly figures as JSON for the browser)
+
+def _chart(fig: go.Figure, height: int, margin: dict | None = None) -> dict:
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        colorway=PALETTE,
+        height=height,
+        margin=margin or {"l": 50, "r": 20, "t": 20, "b": 40},
+        font={"family": "Segoe UI, system-ui, sans-serif", "color": "#2B2330", "size": 13},
+    )
+    return json.loads(fig.to_json())
+
+
+def _trend_chart(history: list[tuple[str, float]]) -> dict:
+    fig = go.Figure(go.Scatter(
+        x=[d for d, _ in history], y=[p for _, p in history], mode="lines+markers",
+        line={"color": PURPLE, "width": 3}, marker={"size": 7, "color": PURPLE},
+        hovertemplate="%{x}<br>₹%{y:,.0f}<extra></extra>",
+    ))
+    fig.update_yaxes(title_text="Price (INR)")
+    return _chart(fig, 300)
+
+
+def _category_chart(rows: list[dict]) -> dict:
+    fig = go.Figure(go.Bar(
+        x=[r["category"] for r in rows], y=[r["avg_price"] for r in rows], marker_color=TEAL,
+        text=[f"{r['products']} products" for r in rows], textposition="outside",
+        hovertemplate="%{x}<br>Average ₹%{y:,.0f}<extra></extra>",
+    ))
+    fig.update_yaxes(title_text="Average price (INR)")
+    return _chart(fig, 320, {"l": 60, "r": 20, "t": 30, "b": 60})
+
+
+def _competitor_chart(sel: dict, peers: list[dict]) -> dict:
+    rows = [(sel["price"], sel["title"], True)] + [(p["price"], p["title"], False) for p in peers]
+    rows.sort(key=lambda r: r[0])
+    fig = go.Figure(go.Bar(
+        x=[r[0] for r in rows],
+        y=[(r[1] or "")[:36] for r in rows],
+        orientation="h",
+        marker_color=[TEAL if r[2] else "#C9B8C4" for r in rows],
+        hovertemplate="%{y}<br>₹%{x:,.0f}<extra></extra>",
+    ))
+    fig.update_xaxes(title_text="Price (INR) · teal = your product")
+    return _chart(fig, max(300, 30 * len(rows) + 80), {"l": 230, "r": 20, "t": 10, "b": 50})
+
+
+def _margin_chart(scenarios: list[dict]) -> dict:
+    fig = go.Figure(go.Bar(
+        x=[s["scenario"] for s in scenarios],
+        y=[s["contribution"] for s in scenarios],
+        marker_color=[TEAL if s["contribution"] >= 0 else RED for s in scenarios],
+        hovertemplate="%{x}<br>₹%{y:,.0f} per unit<extra></extra>",
+    ))
+    fig.update_yaxes(title_text="Contribution per unit (INR)")
+    return _chart(fig, 300)
+
+
+def _sentiment_chart(product_sent: dict) -> dict:
+    mixed = max(0.0, round(100 - product_sent["positive_pct"] - product_sent["negative_pct"], 1))
+    fig = go.Figure(go.Pie(
+        labels=["Positive", "Mixed", "Negative"],
+        values=[product_sent["positive_pct"], mixed, product_sent["negative_pct"]],
+        hole=0.55, sort=False, marker={"colors": [TEAL, AMBER, RED]}, textinfo="label+percent",
+    ))
+    return _chart(fig, 300, {"l": 10, "r": 10, "t": 10, "b": 10})
+
+
+def _heatmap_chart(cities: list[str], labels: list[str], grid: list[list[float | None]]) -> dict:
+    fig = go.Figure(go.Heatmap(z=grid, x=cities, y=labels, colorscale="RdBu", zmid=0,
+                               colorbar={"title": "% vs median"}))
+    return _chart(fig, max(280, 28 * len(labels) + 80), {"l": 10, "r": 10, "t": 10, "b": 10})
+
+
+def _insights(sel, peers, gap_pct, product_sent, scenarios, health) -> list[str]:
+    tips = []
+    if gap_pct is not None:
+        if gap_pct > 0:
+            tips.append(f"Your price is {gap_pct}% above the lowest competitor in this city.")
+        else:
+            tips.append(f"You have the lowest price among {len(peers)} nearby competing products.")
+    if peers:
+        cheaper = sum(p["price"] < sel["price"] for p in peers)
+        tips.append(f"{cheaper} of {len(peers)} competing products in this city are cheaper than yours.")
+    if product_sent:
+        tips.append(f"{product_sent['positive_pct']:.0f}% of stored reviews are positive and "
+                    f"{product_sent['negative_pct']:.0f}% are negative.")
+    if scenarios:
+        best = max(scenarios, key=lambda s: s["contribution"])
+        tips.append(f"Best contribution option: {best['scenario']} (₹{best['contribution']:,.0f} per unit).")
+        risky = [f"{s['scenario']} ({s['risk']})" for s in scenarios if s["risk"] != "OK"]
+        if risky:
+            tips.append("Watch out: " + "; ".join(risky) + ".")
+    if health["stale"]:
+        tips.append(f"{health['stale']} offers are older than {health['stale_hours']:g} hours. "
+                    "Run the crawler again to refresh them.")
+    return tips
+
+
+# ----------------------------------------------------------------- pages
+
 def retailer(request: HttpRequest):
-    error = None
     try:
         data = analytics.load()
     except Exception as exc:  # pymongo raises several types for "cannot connect"
@@ -61,30 +175,22 @@ def retailer(request: HttpRequest):
 
     sent = analytics.sentiment(data)
     product_sent = analytics.product_sentiment(sent, asin)
+    health = analytics.health(data)
 
+    charts = {"category": _category_chart(analytics.category_overview(data, city))}
     history = analytics.price_history(data, asin, city, days)
-    trend_json = None
     if history:
-        import plotly.graph_objects as go
-
-        fig = go.Figure(go.Scatter(x=[d for d, _ in history], y=[p for _, p in history], mode="lines+markers",
-                                   line={"color": "#5eead4", "width": 3}, marker={"size": 7}))
-        fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                          margin={"l": 40, "r": 10, "t": 10, "b": 40}, height=320, yaxis_title="INR")
-        trend_json = fig.to_json()
-
-    heatmap_json = None
+        charts["trend"] = _trend_chart(history)
+    if peers:
+        charts["competitor"] = _competitor_chart(sel, peers)
     cities_, labels, grid = analytics.gap_matrix(data, sel["category"])
     if len(cities_) > 1 and labels:
-        import plotly.graph_objects as go
+        charts["heatmap"] = _heatmap_chart(cities_, labels, grid)
+    if scenarios:
+        charts["margin"] = _margin_chart(scenarios)
+    if product_sent:
+        charts["sentiment"] = _sentiment_chart(product_sent)
 
-        fig = go.Figure(go.Heatmap(z=grid, x=cities_, y=labels, colorscale="RdBu", zmid=0,
-                                   colorbar={"title": "% vs median"}))
-        fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                          margin={"l": 10, "r": 10, "t": 10, "b": 10}, height=max(280, 28 * len(labels) + 80))
-        heatmap_json = fig.to_json()
-
-    health = analytics.health(data)
     context = {
         "cities": city_list,
         "city": city,
@@ -97,8 +203,6 @@ def retailer(request: HttpRequest):
         "lowest": lowest,
         "gap_pct": gap_pct,
         "days": days,
-        "trend_json": trend_json,
-        "heatmap_json": heatmap_json,
         "unit_cost": unit_cost,
         "shipping": shipping,
         "duty": duty,
@@ -112,15 +216,23 @@ def retailer(request: HttpRequest):
         "neg_terms": sent["neg_terms"] if sent else [],
         "basket": analytics.basket_rules(data),
         "health": health,
-        "error": error,
+        "charts": charts,
+        "insights": _insights(sel, peers, gap_pct, product_sent, scenarios, health),
+        "assistant": {
+            "role": "retailer",
+            "context": f"I am looking at {sel['title']} (ASIN {asin}) in {city}.",
+            "greeting": "Hi! Ask about this product, a price, or your margin. I answer from the same data as this dashboard.",
+        },
     }
     return render(request, "web/retailer.html", context)
 
 
 def customer(request: HttpRequest):
     request.session.setdefault("shopper_id", str(uuid.uuid4()))
-    return render(request, "web/customer.html", {"shopper_id": request.session["shopper_id"]})
+    return render(request, "web/customer.html", {"assistant": CUSTOMER_ASSISTANT})
 
+
+# ----------------------------------------------------------------- JSON endpoints used by the pages
 
 def _json_error(exc: Exception, status: int = 502) -> JsonResponse:
     return JsonResponse({"detail": str(exc)}, status=status)
