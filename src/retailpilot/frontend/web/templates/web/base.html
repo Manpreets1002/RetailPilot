@@ -3,13 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8fc">
+  <meta name="description" content="RetailPilot turns public marketplace listings into clearer pricing decisions for retailers and better-informed picks for shoppers.">
   <title>{% block title %}RetailPilot{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'web/css/site.css' %}">
   {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
+  <a class="skip-link" href="#main-content">Skip to content</a>
   {% block content %}{% endblock %}
-  <footer class="site-footer">Made by Wi-Fight Club</footer>
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <a class="footer-brand" href="{% url 'landing' %}"><span class="brand-mark" aria-hidden="true">R</span> RetailPilot</a>
+      <span>Clearer retail decisions, grounded in observed market signals.</span>
+      <span class="footer-credit">Made by Wi-Fight Club</span>
+    </div>
+  </footer>
   {% if assistant %}
     {% include "web/_assistant.html" %}
     <script src="{% static 'web/js/assistant.js' %}"></script>

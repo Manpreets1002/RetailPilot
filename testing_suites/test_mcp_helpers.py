@@ -66,12 +66,14 @@ def test_card_has_the_fields_the_customer_ui_needs():
              "availability": "In stock", "delivery_date": "Tomorrow", "seller": "Acer Store",
              "listing_scraped_at": utc_now()}
     product = {"title": "Acer", "brand": "Acer", "rating": 4.5, "rating_count": 10,
-               "feature_bullets": ["a", "b", "c", "d"], "specifications": {"Battery Life": "10 hours"}}
+               "feature_bullets": ["a", "b", "c", "d"], "specifications": {"Battery Life": "10 hours"},
+               "images": ["http://insecure.example/image.jpg", "https://images.example/product.jpg"]}
     card = ms._card(offer, product)
     assert card["url"] == f"{settings.base_url}/dp/B0TESTA001"
     assert card["price"] == 50000.0
     assert card["battery_hours"] == 10.0
     assert len(card["key_features"]) == 3
+    assert card["image_url"] == "https://images.example/product.jpg"
     assert card["observed_at"] is not None
 
 

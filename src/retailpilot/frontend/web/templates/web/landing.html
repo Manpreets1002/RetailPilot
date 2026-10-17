@@ -1,64 +1,105 @@
 {% extends "web/base.html" %}
-{% block title %}RetailPilot · Welcome{% endblock %}
+{% load static %}
+{% block title %}RetailPilot · Market intelligence for modern retail{% endblock %}
 {% block body_class %}landing{% endblock %}
 {% block content %}
-<main class="landing">
+<nav class="navbar landing-nav" aria-label="Primary navigation">
+  <a class="brand" href="{% url 'landing' %}"><span class="brand-mark" aria-hidden="true">R</span><span>RetailPilot</span></a>
+  <div class="nav-links">
+    <a class="nav-item" href="#how-it-works">How it works</a>
+    <a class="nav-item" href="#for-you">Who it's for</a>
+  </div>
+</nav>
+
+<main class="landing" id="main-content">
   <section class="hero">
-    <h1>RetailPilot</h1>
-    <p>Smarter pricing for retailers. Smarter picks for shoppers. Built on public Amazon India listings,
-    refreshed by our crawler and explained by an AI assistant that shows its evidence.</p>
-  </section>
+    <div class="hero-copy">
+      <span class="eyebrow eyebrow-light"><span class="status-dot"></span> RETAIL INTELLIGENCE · INDIA</span>
+      <h1>Better retail decisions<br><em>start with clarity.</em></h1>
+      <p>RetailPilot turns public Amazon India listings into useful market signals—so retailers can price with context and shoppers can choose with confidence.</p>
+      <div class="hero-actions">
+        <a class="btn btn-light hero-primary" href="{% url 'retailer' %}">Explore the retailer dashboard <span aria-hidden="true">→</span></a>
+        <a class="hero-text-link" href="{% url 'customer' %}">I'm here to shop <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="hero-proof"><span class="proof-check" aria-hidden="true">✓</span> Prices and insights tied to observed listings</div>
+    </div>
 
-  <section class="block">
-    <h2>What is RetailPilot?</h2>
-    <p>RetailPilot reads prices, specifications, delivery dates and customer reviews from public listings in
-    cities across India. It turns that data into two products: a dashboard for retailers, and a shopping
-    assistant for customers. Both answer in plain language and point to the listings behind every number.</p>
-  </section>
-
-  <section class="block">
-    <h2>How we can help you</h2>
-    <div class="cards">
-      <article class="card">
-        <h3>For retailers</h3>
-        <p>See where your price sits against competitors in your city and subcategory. Compare margins at
-        match-lowest, hold and raise scenarios from your own landed cost. Track price trends, read what customers
-        say about your products, and check how fresh the data is.</p>
-      </article>
-      <article class="card">
-        <h3>For customers</h3>
-        <p>Tell us what you want to buy. We show the best-value picks in that category for your city today,
-        weighing ratings, review volume and price. Then ask follow-up questions: specs, pros and cons,
-        comparisons, and what past prices looked like.</p>
-      </article>
+    <div class="hero-visual" role="img" aria-label="Illustrative preview of RetailPilot market signals">
+      <div class="visual-glow"></div>
+      <div class="signal-window">
+        <div class="signal-window-top">
+          <div class="window-brand"><span class="brand-mark brand-mark-small" aria-hidden="true">R</span><span>RetailPilot <small>MARKET VIEW</small></span></div>
+          <span class="preview-tag">INTERFACE PREVIEW</span>
+        </div>
+        <div class="signal-title-row">
+          <div><span class="signal-kicker">A CLEARER VIEW OF YOUR MARKET</span><h2>Signals, not guesswork.</h2></div>
+          <span class="signal-orbit" aria-hidden="true"><span></span></span>
+        </div>
+        <div class="signal-chart">
+          <div class="chart-labels"><span>PRICE POSITION</span><span>CITY OFFERS</span></div>
+          <svg viewBox="0 0 420 116" preserveAspectRatio="none" aria-hidden="true">
+            <defs><linearGradient id="chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#8ce3cd" stop-opacity=".26"/><stop offset="100%" stop-color="#8ce3cd" stop-opacity="0"/></linearGradient></defs>
+            <path d="M0 91 C35 85 40 73 71 78 S116 62 145 69 S182 54 212 61 S261 39 291 48 S334 30 362 40 S397 18 420 22 V116 H0Z" fill="url(#chart-fill)"/>
+            <path d="M0 91 C35 85 40 73 71 78 S116 62 145 69 S182 54 212 61 S261 39 291 48 S334 30 362 40 S397 18 420 22" fill="none" stroke="#91e8d0" stroke-width="3" stroke-linecap="round"/>
+            <path d="M0 105 H420 M0 72 H420 M0 39 H420" stroke="#ffffff" stroke-opacity=".11" stroke-dasharray="4 6"/>
+          </svg>
+          <div class="chart-legend"><span><i class="legend-own"></i> Your listing</span><span><i class="legend-market"></i> Market context</span></div>
+        </div>
+        <div class="signal-cards">
+          <div><span class="signal-card-icon icon-indigo" aria-hidden="true">↗</span><span>COMPETITION</span><strong>Compare local prices</strong></div>
+          <div><span class="signal-card-icon icon-mint" aria-hidden="true">◎</span><span>PROFITABILITY</span><strong>Explore margin scenarios</strong></div>
+          <div><span class="signal-card-icon icon-gold" aria-hidden="true">✳</span><span>SHOPPING</span><strong>See why a pick fits</strong></div>
+        </div>
+      </div>
+      <span class="visual-caption">An illustrative interface · actual data depends on the latest crawl</span>
     </div>
   </section>
 
-  <section class="block">
-    <h2>How it works</h2>
+  <section class="feature-strip" aria-label="RetailPilot capabilities">
+    <div><span class="feature-symbol" aria-hidden="true">⌁</span><span>City-level price context</span></div>
+    <div><span class="feature-symbol" aria-hidden="true">◈</span><span>Margin and review analysis</span></div>
+    <div><span class="feature-symbol" aria-hidden="true">✦</span><span>Answers grounded in the data</span></div>
+  </section>
+
+  <section class="block audience-section" id="for-you">
+    <div class="section-heading">
+      <span class="eyebrow">ONE MARKET · TWO EXPERIENCES</span>
+      <h2>Built around the decisions you make.</h2>
+      <p>Whether you set the price or pay it, get the context that makes the next move easier.</p>
+    </div>
+    <div class="cards audience-cards">
+      <article class="role role-retailer">
+        <div class="role-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h17M8 15l3-4 3 2 5-7"/><path d="M16 6h3v3"/></svg>
+        </div>
+        <span class="role-kicker">FOR RETAILERS</span>
+        <h3>Know where you stand before you change your price.</h3>
+        <p>Compare competitors by city, model your own costs, and see what review sentiment and data freshness say about the opportunity.</p>
+        <a class="btn btn-light" href="{% url 'retailer' %}">Open retailer dashboard <span aria-hidden="true">→</span></a>
+      </article>
+      <article class="role role-customer">
+        <div class="role-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M3 4h2l2.2 11.2a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 1.9-1.4L22 9H7"/><circle cx="10" cy="20" r="1.2"/><circle cx="18" cy="20" r="1.2"/></svg>
+        </div>
+        <span class="role-kicker">FOR SHOPPERS</span>
+        <h3>Find a better-value pick—and understand why.</h3>
+        <p>Browse products recommended for your city, weigh price against ratings and reviews, then ask follow-up questions in plain language.</p>
+        <a class="btn btn-light" href="{% url 'customer' %}">Explore the customer shop <span aria-hidden="true">→</span></a>
+      </article>
+    </div>
+    <p class="fine trust-note"><span aria-hidden="true">ⓘ</span> Listings can change after they are observed. RetailPilot explains market data; it does not set prices or complete purchases.</p>
+  </section>
+
+  <section class="block process-section" id="how-it-works">
+    <div class="section-heading">
+      <span class="eyebrow">HOW IT WORKS</span>
+      <h2>From public listings to a clearer next move.</h2>
+    </div>
     <div class="steps">
-      <div><span class="step">1 · Collect</span><p>A crawler records prices, delivery dates, specs and reviews for each city, with timestamps.</p></div>
-      <div><span class="step">2 · Analyse</span><p>Pricing, margin and sentiment tools calculate results from that data, never from guesses.</p></div>
-      <div><span class="step">3 · Explain</span><p>The assistant answers with the numbers, the date they were observed, and what it could not find.</p></div>
+      <article class="process-step"><span class="step-number">01</span><span class="step">Collect</span><p>Prices, delivery details, specifications and reviews are captured with city and time context.</p></article>
+      <article class="process-step"><span class="step-number">02</span><span class="step">Analyse</span><p>Compare market prices, model contribution scenarios and read review sentiment from the collected data.</p></article>
+      <article class="process-step"><span class="step-number">03</span><span class="step">Explain</span><p>Ask the assistant what a result means and get a plain-language answer tied to the available evidence.</p></article>
     </div>
-  </section>
-
-  <section class="block">
-    <h2>Who are you?</h2>
-    <div class="cards">
-      <div class="role">
-        <h3>I sell laptops and electronics</h3>
-        <p>Open the retailer dashboard: competitor prices, margins, sentiment and an assistant that answers from your data.</p>
-        <a class="btn btn-light" href="{% url 'retailer' %}">Continue as retailer</a>
-      </div>
-      <div class="role">
-        <h3>I want to buy something</h3>
-        <p>Tell us what interests you and get today's best picks, then ask the assistant anything about them.</p>
-        <a class="btn btn-light" href="{% url 'customer' %}">Continue as customer</a>
-      </div>
-    </div>
-    <p class="fine">Prices come from public listings and are only valid for the day they were observed.
-    RetailPilot recommends and explains; it does not change prices or buy anything.</p>
   </section>
 </main>
 {% endblock %}

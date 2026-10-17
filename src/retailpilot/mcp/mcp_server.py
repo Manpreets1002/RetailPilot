@@ -103,10 +103,15 @@ def _spec_matches(product: dict, spec_filters: dict[str, str]) -> bool:
 
 def _card(offer: dict, product: dict) -> dict:
     seen = _observed_at(offer)
+    image_url = next(
+        (image for image in (product.get("images") or []) if isinstance(image, str) and image.startswith("https://")),
+        None,
+    )
     return {
         "asin": offer["asin"],
         "title": product.get("title"),
         "brand": product.get("brand"),
+        "image_url": image_url,
         "url": f"{AMAZON_BASE_URL}/dp/{offer['asin']}",
         "price": offer.get("price"),
         "mrp": offer.get("mrp"),

@@ -3,10 +3,10 @@
 {% block title %}RetailPilot · Shop{% endblock %}
 {% block body_class %}customer{% endblock %}
 {% block content %}
-<nav class="navbar">
-  <a class="brand" href="{% url 'landing' %}">RetailPilot</a>
+<nav class="navbar" aria-label="Primary navigation">
+  <a class="brand" href="{% url 'landing' %}"><span class="brand-mark" aria-hidden="true">R</span><span>RetailPilot</span></a>
   <div class="nav-links">
-    <span class="nav-item active">Shop</span>
+    <span class="nav-item active" aria-current="page">Shop</span>
     <a class="nav-item" href="{% url 'retailer' %}">Retailer dashboard</a>
   </div>
   <div class="nav-right">
@@ -19,23 +19,36 @@
   </div>
 </nav>
 
-<main class="page">
-  <section id="step-categories">
-    <div class="page-head">
-      <h1>What are you shopping for?</h1>
-      <p class="fine">Step 1: choose a category. We will suggest the best-value picks in your delivery city today.</p>
+<main class="page shop-page" id="main-content">
+  <section class="shop-hero">
+    <div class="shop-hero-copy">
+      <span class="eyebrow"><span class="status-dot"></span> CUSTOMER SHOP</span>
+      <h1>Find the right pick.<br><em>Know why it fits.</em></h1>
+      <p>Tell us what you’re shopping for. We’ll surface value picks for your city and make the trade-offs easier to see.</p>
     </div>
-    <div id="categories" class="cat-grid">
+    <div class="shop-trust-list" aria-label="How RetailPilot helps">
+      <div><span class="shop-trust-icon" aria-hidden="true">₹</span><span><strong>Price in context</strong><small>Use offers observed for your city</small></span></div>
+      <div><span class="shop-trust-icon" aria-hidden="true">★</span><span><strong>Value, not just the lowest price</strong><small>Ratings, review volume and price</small></span></div>
+      <div><span class="shop-trust-icon" aria-hidden="true">✦</span><span><strong>Ask a follow-up</strong><small>Get a plain-language explanation</small></span></div>
+    </div>
+  </section>
+
+  <section id="step-categories" class="shop-stage">
+    <div class="section-heading shop-section-heading">
+      <div><span class="eyebrow">STEP 01 · CHOOSE AN AISLE</span><h2>What are you shopping for?</h2></div>
+      <p class="fine">Recommendations are based on listings available for the delivery city you choose.</p>
+    </div>
+    <div id="categories" class="cat-grid" aria-live="polite" aria-busy="true">
       <p class="fine">Loading categories…</p>
     </div>
   </section>
 
-  <section id="step-picks" hidden>
+  <section id="step-picks" class="shop-stage picks-stage" aria-live="polite" hidden>
     <div class="picks-head">
       <button class="btn btn-ghost" id="back-cats" type="button">← All categories</button>
-      <h1 id="pick-title"></h1>
+      <div><span class="eyebrow">STEP 02 · YOUR SHORTLIST</span><h1 id="pick-title"></h1></div>
     </div>
-    <p class="fine">Best-value picks in <span id="pick-city"></span> today. Add what you like to your cart, or open it on Amazon.in.</p>
+    <p class="fine picks-intro">Value picks for <span id="pick-city"></span>. Compare the details, save a pick to your cart, or open the listing on Amazon.in.</p>
     <p id="picks-note" class="note" hidden></p>
     <div id="picks" class="picks"></div>
     <div class="picks-actions">
@@ -44,16 +57,16 @@
   </section>
 </main>
 
-<aside class="cart-drawer" id="cart-drawer" hidden>
+<aside class="cart-drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-title" hidden>
   <div class="cart-card">
     <div class="drawer-head">
-      <h3>Your cart</h3>
-      <button class="btn btn-ghost btn-small" id="close-cart" type="button">Close</button>
+      <div><span class="eyebrow">YOUR SHOPPING LIST</span><h3 id="cart-title">Your cart</h3></div>
+      <button class="btn btn-ghost btn-small" id="close-cart" type="button" aria-label="Close cart">Close</button>
     </div>
     <div id="cart-items"></div>
     <div class="cart-foot">
-      <div class="cart-total"><span>Total</span><b id="cart-total">₹0</b></div>
-      <p class="fine">Prices come from the last crawl. Complete each purchase on Amazon.in.</p>
+      <div class="cart-total"><span>Estimated total</span><b id="cart-total">₹0</b></div>
+      <p class="fine">Estimate based on the last observed prices. Complete each purchase on Amazon.in.</p>
       <button class="btn btn-ghost btn-block" id="clear-cart" type="button">Clear cart</button>
     </div>
   </div>

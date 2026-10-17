@@ -69,10 +69,11 @@
   function renderCategories(categories) {
     el("categories").innerHTML = categories.map((c) => `
       <button class="cat-card" data-name="${esc(c.name)}" type="button">
-        <span class="cat-icon">${esc((c.name || "?").charAt(0).toUpperCase())}</span>
-        <b>${esc(c.name)}</b>
-        <span class="fine">${Number(c.products).toLocaleString("en-IN")} products</span>
+        <span class="cat-icon" aria-hidden="true">${esc((c.name || "?").charAt(0).toUpperCase())}<i>↗</i></span>
+        <span class="cat-name">${esc(c.name)}</span>
+        <span class="cat-meta">${Number(c.products).toLocaleString("en-IN")} products <i aria-hidden="true">→</i></span>
       </button>`).join("") || '<p class="fine">No categories have data yet. Run the crawler first.</p>';
+    el("categories").setAttribute("aria-busy", "false");
   }
 
   el("categories").addEventListener("click", (event) => {
@@ -102,23 +103,39 @@
   function renderPicks() {
     el("picks").innerHTML = state.picks.map((item) => `
       <div class="pick">
-        <div class="meta">${esc(item.brand || "")}</div>
-        <div class="title">${esc((item.title || "").slice(0, 90))}</div>
-        <div class="price">${money(item.price)} <span class="meta">MRP ${money(item.mrp)}${item.discount_pct ? " · " + item.discount_pct + "% off" : ""}</span></div>
-        <div class="meta">${item.rating ? item.rating.toFixed(1) + " ★ (" + Number(item.rating_count || 0).toLocaleString("en-IN") + ")" : "No ratings yet"} · Delivery ${esc(item.delivery_date || "see listing")}</div>
+        <div class="pick-topline"><span class="pick-tag"><i aria-hidden="true">✦</i> RETAILPILOT PICK</span><span class="pick-brand">${esc(item.brand || "Marketplace listing")}</span></div>
+        <div class="pick-image">
+          ${item.image_url
+            ? `<img src="${esc(item.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+            : '<span class="image-placeholder" aria-hidden="true">RP</span>'}
+        </div>
+        <div class="pick-title">${esc((item.title || "").slice(0, 110))}</div>
+        <div class="pick-price-row">
+          <div><span class="price-caption">Observed price</span><div class="price">${money(item.price)}</div></div>
+          ${item.discount_pct ? `<span class="pick-discount">${esc(item.discount_pct)}% below MRP</span>` : ""}
+        </div>
+        <div class="pick-details">
+          <span class="rating-chip">${item.rating ? `<b>${Number(item.rating).toFixed(1)} ★</b> ${Number(item.rating_count || 0).toLocaleString("en-IN")} ratings` : "No ratings yet"}</span>
+          <span class="delivery-chip"><i aria-hidden="true">⌁</i> ${esc(item.delivery_date || "See listing for delivery")}</span>
+        </div>
+        ${(item.key_features || []).length
+          ? `<ul class="pick-features">${item.key_features.slice(0, 2).map((feature) => `<li>${esc(feature)}</li>`).join("")}</ul>`
+          : ""}
         <div class="actions">
-          <a class="btn btn-ghost btn-small" href="${esc(amazonUrl(item))}" target="_blank" rel="noopener">View on Amazon</a>
+          <a class="btn btn-ghost btn-small" href="${esc(amazonUrl(item))}" target="_blank" rel="noopener">View on Amazon <span aria-hidden="true">↗</span></a>
           ${inCart(item.asin)
             ? '<button class="btn btn-small" type="button" disabled>In cart ✓</button>'
-            : `<button class="btn btn-small" type="button" data-add="${esc(item.asin)}">Add to cart</button>`}
+            : `<button class="btn btn-small" type="button" data-add="${esc(item.asin)}">Add to cart <span aria-hidden="true">+</span></button>`}
         </div>
       </div>`).join("");
     el("picks").hidden = state.picks.length === 0;
     el("more-picks").parentElement.hidden = state.picks.length === 0;
+    el("picks").setAttribute("aria-busy", "false");
   }
 
   async function fetchPicks() {
     const city = el("city").value;
+    el("picks").setAttribute("aria-busy", "true");
     el("picks-note").hidden = true;
     if (!city) {
       state.picks = [];
@@ -190,10 +207,18 @@
       : '<p class="fine">Your cart is empty. Add picks from the shop to see them here.</p>';
   }
 
-  el("cart-btn").addEventListener("click", () => { el("cart-drawer").hidden = false; });
-  el("close-cart").addEventListener("click", () => { el("cart-drawer").hidden = true; });
+  function closeCart() {
+    el("cart-drawer").hidden = true;
+    el("cart-btn").focus();
+  }
+
+  el("cart-btn").addEventListener("click", () => {
+    el("cart-drawer").hidden = false;
+    el("close-cart").focus();
+  });
+  el("close-cart").addEventListener("click", closeCart);
   el("cart-drawer").addEventListener("click", (event) => {
-    if (event.target === el("cart-drawer")) { el("cart-drawer").hidden = true; return; }
+    if (event.target === el("cart-drawer")) { closeCart(); return; }
     const button = event.target.closest("[data-remove]");
     if (button) removeFromCart(button.dataset.remove);
   });
@@ -202,6 +227,10 @@
     saveCart();
     renderCart();
     renderPicks();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !el("cart-drawer").hidden) closeCart();
   });
 
   // ------------------------------------------------------------ start
@@ -219,6 +248,7 @@
       renderCategories((await api("/api/categories/")).categories);
     } catch (err) {
       el("categories").innerHTML = `<p class="fine">${esc(err.message)}</p>`;
+      el("categories").setAttribute("aria-busy", "false");
     }
   }
 
