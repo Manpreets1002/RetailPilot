@@ -31,22 +31,6 @@ Run one area:
 Tests that need MongoDB are skipped with a reason when it is not reachable. To run them, start the
 database first (`docker compose up -d mongo`).
 
-## Safety
-
-MongoDB tests write only to `retailpilot_test_suite` and `retailpilot_test_suite_chat`, and drop both
-when they finish. Your real crawl data is never touched.
-
-## Expected failures
-
-None at the moment. The four bugs that used to be marked as expected failures are fixed:
-
-- `customer_best_today` with `observed_on="any"` now returns older offers.
-- Marketplace fees of 100% or more are rejected with a clear message, in the dashboard and the MCP tool.
-- A failed MCP tool call raises `ToolCallFailed`, which the backend returns as a 502 with a message.
-- The root compose file publishes MongoDB on host port 27018, the same port as `.env` `MONGO_URI`. The test
-  `test_root_compose_mongo_port_matches_env_mongo_uri` checks that they match. The root and crawler compose
-  files both use 27018, so run only one of them at a time.
-
 ## Requirements
 
 The tests read the per-service files at the project root: `requirement-mcp.txt`, `requirement-backend.txt`
