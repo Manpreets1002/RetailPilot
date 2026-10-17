@@ -8,3 +8,4 @@ pydantic-settings
 playwright
 redis
 rq
+filelock>=3.13

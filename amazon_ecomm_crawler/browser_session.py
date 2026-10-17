@@ -13,12 +13,13 @@ case we open a real Chromium with Playwright and let it do what Amazon asks:
 """
 
 import contextlib
-import fcntl
 import logging
 import re
 import tempfile
 import time
 from pathlib import Path
+
+from filelock import FileLock, Timeout
 
 from config import Settings
 
@@ -143,17 +144,15 @@ def _browser_slot(limit: int):
     waited = False
     while True:
         for i in range(max(1, limit)):
-            f = open(lock_dir / f"slot-{i}.lock", "w")  # noqa: SIM115 - held open for the lock's lifetime
+            lock = FileLock(lock_dir / f"slot-{i}.lock")
             try:
-                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                f.close()
+                lock.acquire(timeout=0)
+            except Timeout:
                 continue
             try:
                 yield
             finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-                f.close()
+                lock.release()
             return
         if not waited:
             log.info("Browser: %d browsers already running, waiting for a free slot", limit)
