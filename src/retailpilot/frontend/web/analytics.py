@@ -95,7 +95,10 @@ def _load_raw() -> dict:
         db = client[settings.MONGO_DB]
         products = {p["asin"]: p for p in db.products.find({}, {"_id": 0, "images": 0, "description": 0})}
         offers = list(db.city_offers.find({"price": {"$ne": None}}, {"_id": 0}))
-        since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=HISTORY_DAYS)
+        # Anchor the history window on the last stored price, so the dashboard keeps its trends between crawls.
+        last = db.price_history.find_one({}, {"_id": 0, "scraped_at": 1}, sort=[("scraped_at", -1)])
+        anchor = last["scraped_at"] if last else datetime.now(UTC).replace(tzinfo=None)
+        since = anchor - timedelta(days=HISTORY_DAYS)
         history = list(db.price_history.find({"scraped_at": {"$gte": since}}, {"_id": 0, "asin": 1, "city": 1, "price": 1, "scraped_at": 1}))
         reviews = list(db.reviews.find({}, {"_id": 0, "asin": 1, "author": 1, "rating": 1, "title": 1, "body": 1, "date": 1}))
         runs = list(db.crawl_runs.find({}, {"_id": 0}).sort("started_at", -1).limit(5))
@@ -146,9 +149,12 @@ def peers_of(data: dict, city: str, sel: dict, n: int = PEER_COUNT) -> list[dict
 
 
 def price_history(data: dict, asin: str, city: str, days: int) -> list[tuple[str, float]]:
-    since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
+    rows = [h for h in data["history"] if h["asin"] == asin and h["city"] == city]
+    if not rows:
+        return []
+    since = max(h["scraped_at"] for h in rows) - timedelta(days=days)
     per_day: dict[str, float] = {}
-    for h in sorted((h for h in data["history"] if h["asin"] == asin and h["city"] == city and h["scraped_at"] >= since), key=lambda h: h["scraped_at"]):
+    for h in sorted((h for h in rows if h["scraped_at"] >= since), key=lambda h: h["scraped_at"]):
         if h.get("price") is not None:
             per_day[h["scraped_at"].date().isoformat()] = h["price"]
     return sorted(per_day.items())

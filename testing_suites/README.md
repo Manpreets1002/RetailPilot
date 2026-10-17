@@ -40,7 +40,3 @@ The tests read the per-service files at the project root: `requirement-mcp.txt`,
 - every package the code imports is listed in one of these files;
 - a package listed in several files has the same version range in each;
 - the installed versions satisfy the ranges.
-
-## Known failures
-
-None at the moment. `test_every_pyproject_dependency_is_in_requirements` passes.

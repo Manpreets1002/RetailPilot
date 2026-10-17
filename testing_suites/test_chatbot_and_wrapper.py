@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import re
 from types import SimpleNamespace
 
 import pytest
@@ -21,7 +20,7 @@ from retailpilot.agent.chatbot import (
     _turn_transcript,
     tools_for_role,
 )
-from retailpilot.agent.mcp_wrapper import MCPToolkit, _unwrap, today_ist
+from retailpilot.agent.mcp_wrapper import MCPToolkit, _unwrap
 
 
 class FakeHistory:
@@ -158,17 +157,6 @@ def test_unwrap_falls_back_to_json_text_then_raw_text():
     assert _unwrap(as_json) == {"ok": True}
     as_text = SimpleNamespace(structured_content=None, content=[SimpleNamespace(text="not json")])
     assert _unwrap(as_text) == "not json"
-
-
-def test_today_is_passed_only_to_date_aware_search():
-    kit = MCPToolkit()
-    assert kit._with_today("search_products", {"city": "delhi"})["observed_on"] == today_ist()
-    assert kit._with_today("search_products", {"observed_on": "any"})["observed_on"] == "any"
-    assert kit._with_today("get_product", {"asin": "B0TESTA001"}) == {"asin": "B0TESTA001"}
-
-
-def test_today_ist_is_an_iso_date():
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", today_ist())
 
 
 def test_tool_success_is_returned_as_json_text():

@@ -41,7 +41,7 @@ def test_list_cities_reports_which_have_data(run):
 
 # ------------------------------------------------------------------ customer tools
 
-def test_search_defaults_to_today_and_ranks_by_rating(run):
+def test_search_reads_the_last_crawl_and_ranks_by_rating(run):
     res = run(ms.search_products(city="delhi", category="laptop"))
     assert [r["asin"] for r in res["results"]] == [sd.LAPTOP_A, sd.LAPTOP_B]
     assert res["matched"] == 2
@@ -58,15 +58,11 @@ def test_search_price_filter_and_sort(run):
     assert [r["asin"] for r in res["results"]] == [sd.CASE, sd.LAPTOP_B]
 
 
-def test_search_on_a_day_with_no_offers_explains_why(run):
-    res = run(ms.search_products(city="delhi", category="laptop", observed_on="2001-01-01"))
-    assert res["matched"] == 0
-    assert "note" in res
-
-
-def test_search_any_day_includes_stale_offers(run):
-    res = run(ms.search_products(city="chennai", category="laptop", observed_on="any"))
+def test_search_includes_offers_from_an_older_crawl(run):
+    # Chennai's only offer was seen days ago; it is still the last crawl, so it is returned.
+    res = run(ms.search_products(city="chennai", category="laptop"))
     assert res["matched"] == 1
+    assert res["results"][0]["observed_at"] is not None
 
 
 def test_get_product_returns_the_city_price(run):
@@ -118,24 +114,24 @@ def test_price_history_is_newest_first(run):
     assert observations[0]["price"] == 50000.0
 
 
-def test_customer_best_today_returns_only_priced_products_seen_today(run):
+def test_customer_best_returns_only_priced_products_from_the_last_crawl(run):
     res = run(ms.customer_best_today(category="Laptops", city="delhi", limit=5))
     assert sorted(i["asin"] for i in res["items"]) == sorted([sd.LAPTOP_A, sd.LAPTOP_B])
 
 
-def test_customer_best_today_honours_exclude_asins(run):
+def test_customer_best_honours_exclude_asins(run):
     res = run(ms.customer_best_today(category="Laptops", city="delhi", exclude_asins=[sd.LAPTOP_A]))
     assert [i["asin"] for i in res["items"]] == [sd.LAPTOP_B]
 
 
-def test_customer_best_today_in_city_without_data_gives_a_note(run):
+def test_customer_best_in_city_without_data_gives_a_note(run):
     res = run(ms.customer_best_today(category="Laptops", city="pune"))
     assert res["items"] == []
     assert "note" in res
 
 
-def test_customer_best_today_any_day_returns_older_offers(run):
-    res = run(ms.customer_best_today(category="Laptops", city="chennai", observed_on="any"))
+def test_customer_best_returns_an_older_crawl_instead_of_nothing(run):
+    res = run(ms.customer_best_today(category="Laptops", city="chennai"))
     assert [i["asin"] for i in res["items"]] == [sd.LAPTOP_A]
 
 

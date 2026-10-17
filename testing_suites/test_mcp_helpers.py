@@ -10,17 +10,6 @@ from retailpilot.config.config import settings
 from sample_data import ago, utc_now
 
 
-def test_day_window_for_a_given_ist_day_is_utc_naive_and_24_hours_long():
-    start, end = ms._day_window("2026-10-16")
-    assert start == datetime(2026, 10, 15, 18, 30)  # IST midnight in UTC
-    assert end - start == timedelta(hours=24)
-    assert start.tzinfo is None
-
-
-def test_day_window_any_means_no_date_filter():
-    assert ms._day_window("any") == (None, None)
-
-
 def test_observed_at_uses_the_latest_timestamp():
     early, late = datetime(2026, 10, 1), datetime(2026, 10, 2)
     assert ms._observed_at({"listing_scraped_at": early, "detail_scraped_at": late}) == late
@@ -28,10 +17,11 @@ def test_observed_at_uses_the_latest_timestamp():
     assert ms._observed_at(None) is None
 
 
-def test_observed_today_is_true_for_a_fresh_offer_and_false_for_an_old_one():
-    assert ms._observed_today({"listing_scraped_at": utc_now()}) is True
-    assert ms._observed_today({"listing_scraped_at": ago(days=3)}) is False
-    assert ms._observed_today(None) is False
+def test_offer_summary_reports_when_the_offer_was_observed_and_no_day_flag():
+    seen = ago(days=3)
+    summary = ms._offer_summary({"price": 100, "listing_scraped_at": seen})
+    assert summary["observed_at"] == seen.isoformat()
+    assert "observed_today" not in summary
 
 
 @pytest.mark.parametrize(

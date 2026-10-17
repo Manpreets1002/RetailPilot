@@ -358,7 +358,7 @@ ${names}`,
     try {
       const cities = (await api("/api/cities/")).cities.filter((c) => c.covered);
       el("city").innerHTML = cities.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")
-        || '<option value="">No city has data today</option>';
+        || '<option value="">No city has data in the last crawl</option>';
     } catch (err) {
       el("city").innerHTML = '<option value="">Unavailable</option>';
     }

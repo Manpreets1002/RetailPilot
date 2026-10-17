@@ -3,7 +3,7 @@
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +13,6 @@ from langchain_core.tools import StructuredTool
 
 SERVER_PATH = Path(__file__).resolve().parents[1] / "mcp" / "mcp_server.py"
 IST = timezone(timedelta(hours=5, minutes=30))
-DATE_AWARE_TOOLS = {"search_products"}
-
-
-def today_ist() -> str:
-    return datetime.now(IST).date().isoformat()
 
 
 def _unwrap(result: Any) -> Any:
@@ -45,13 +40,8 @@ class MCPToolkit:
     async def __aexit__(self, *exc_info) -> None:
         await self.client.__aexit__(*exc_info)
 
-    def _with_today(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
-        if name in DATE_AWARE_TOOLS and not args.get("observed_on"):
-            return {**args, "observed_on": today_ist()}
-        return args
-
     async def call(self, name: str, args: dict[str, Any]) -> str:
-        result = await self.client.call_tool(name, self._with_today(name, args), raise_on_error=False)
+        result = await self.client.call_tool(name, args, raise_on_error=False)
         if result.is_error:
             return f"Tool {name} failed: {_unwrap(result)}"
         return json.dumps(_unwrap(result), default=str, ensure_ascii=False)

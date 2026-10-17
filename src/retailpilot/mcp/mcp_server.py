@@ -2,7 +2,8 @@
 
 Run: python src/retailpilot/mcp/mcp_server.py   (stdio transport)
 
-Tools default to offers observed today (IST). Pass observed_on to ask for an older day, or "any".
+Every tool reads the last crawl stored in MongoDB. city_offers keeps one latest row per product and city,
+so there is no date filter: data stays current until the next crawl replaces it, whatever the date is.
 """
 
 import difflib
@@ -11,7 +12,7 @@ import os
 import random
 import re
 from collections import Counter
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from itertools import combinations
 from statistics import median
 from typing import Any
@@ -21,7 +22,6 @@ from mcp.types import ToolAnnotations
 
 from mcp_connection import AMAZON_BASE_URL, db, load_cities
 
-IST = timezone(timedelta(hours=5, minutes=30))
 READ_ONLY = ToolAnnotations(readOnlyHint=True)
 MAX_LIMIT = 50
 CANDIDATE_CAP = 1000
@@ -32,7 +32,7 @@ mcp = FastMCP(
     instructions=(
         "Answer product questions from Amazon India data for one city at a time. "
         "Call resolve_city first to get the city slug. Prices are in INR and reflect the city's "
-        "delivery pincode, observed today unless a day is requested."
+        "delivery pincode, from the last crawl stored in the database. Each offer shows when it was observed."
     ),
 )
 
@@ -43,26 +43,9 @@ def _clean(doc: dict | None) -> dict | None:
     return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in doc.items()}
 
 
-def _day_window(observed_on: str | None) -> tuple[datetime | None, datetime | None]:
-    """UTC-naive [start, end) bounds for an IST calendar day. None means no date filter."""
-    if observed_on == "any":
-        return None, None
-    day = date.fromisoformat(observed_on) if observed_on else datetime.now(IST).date()
-    start = datetime(day.year, day.month, day.day, tzinfo=IST)
-    return start.astimezone(UTC).replace(tzinfo=None), (start + timedelta(days=1)).astimezone(UTC).replace(tzinfo=None)
-
-
 def _observed_at(offer: dict | None) -> datetime | None:
     stamps = [t for t in ((offer or {}).get("listing_scraped_at"), (offer or {}).get("detail_scraped_at")) if t]
     return max(stamps) if stamps else None
-
-
-def _observed_today(offer: dict | None) -> bool:
-    seen = _observed_at(offer)
-    if seen is None:
-        return False
-    start, end = _day_window(None)
-    return start <= seen < end
 
 
 def _battery_hours(product: dict) -> float | None:
@@ -152,7 +135,6 @@ def _offer_summary(offer: dict | None) -> dict | None:
         "availability": offer.get("availability"),
         "seller": offer.get("seller"),
         "observed_at": seen.isoformat() if seen else None,
-        "observed_today": _observed_today(offer),
     }
 
 
@@ -290,10 +272,10 @@ async def resolve_city(location: str) -> dict:
 @mcp.tool(
     "search_products",
     description=(
-        "Search products in one city. Prices are in INR. Returns offers observed today unless observed_on "
-        "is a YYYY-MM-DD day or 'any'. query: every word must appear in the title, brand, features, "
-        "description or specs. category: partial match on category or breadcrumb names. spec_filters: spec "
-        "name contains and value contains, e.g. {\"colour\": \"black\"}. sort_by: rating, price_asc or price_desc."
+        "Search products in one city, using the last crawl stored for each product. Prices are in INR. "
+        "query: every word must appear in the title, brand, features, description or specs. category: partial "
+        "match on category or breadcrumb names. spec_filters: spec name contains and value contains, e.g. "
+        "{\"colour\": \"black\"}. sort_by: rating, price_asc or price_desc."
     ),
     annotations=READ_ONLY,
 )
@@ -310,7 +292,6 @@ async def search_products(
     min_ratings_count: int | None = None,
     sort_by: str = "rating",
     limit: int = 10,
-    observed_on: str | None = None,
 ) -> dict:
     product_filter: dict[str, Any] = {}
     if category:
@@ -324,10 +305,6 @@ async def search_products(
     price = {k: v for k, v in (("$gte", min_price), ("$lte", max_price)) if v is not None}
     if price:
         query_filter["price"] = price
-    start, end = _day_window(observed_on)
-    if start is not None:
-        in_window = {"$gte": start, "$lt": end}
-        query_filter["$or"] = [{"listing_scraped_at": in_window}, {"detail_scraped_at": in_window}]
     offers = await db.city_offers.find(query_filter).limit(CANDIDATE_CAP).to_list(None)
 
     terms = query.lower().split() if query else []
@@ -357,13 +334,7 @@ async def search_products(
         rows.sort(key=lambda r: (r["rating"] or 0, r["rating_count"] or 0), reverse=True)
 
     limit = max(1, min(limit, MAX_LIMIT))
-    result = {"city": city, "matched": len(rows), "results": rows[:limit]}
-    if not rows and start is not None:
-        result["note"] = (
-            f"No offers observed for {observed_on or 'today'} in this city. "
-            "Do not present older prices as current; ask the user before using observed_on='any'."
-        )
-    return result
+    return {"city": city, "matched": len(rows), "results": rows[:limit]}
 
 
 @mcp.tool(
@@ -644,9 +615,16 @@ async def retailer_competitor_prices(asin: str, city: str, limit: int = 12) -> d
     annotations=READ_ONLY,
 )
 async def retailer_price_trend(asin: str, city: str, days: int = 14) -> dict:
-    since = datetime.now(UTC) - timedelta(days=max(1, min(days, 90)))
+    days = max(1, min(days, 90))
+    last = await db.price_history.find_one(
+        {"asin": asin, "city": city}, {"_id": 0, "scraped_at": 1}, sort=[("scraped_at", -1)]
+    )
+    if last is None:
+        return {"asin": asin, "city": city, "days": days, "daily_last_price": {}}
+    # Count the window back from the last stored observation, so the trend still shows after a gap in crawling.
+    since = last["scraped_at"] - timedelta(days=days)
     rows = await db.price_history.find(
-        {"asin": asin, "city": city, "scraped_at": {"$gte": since.replace(tzinfo=None)}},
+        {"asin": asin, "city": city, "scraped_at": {"$gte": since}},
         {"_id": 0, "price": 1, "scraped_at": 1},
     ).sort("scraped_at", 1).to_list(None)
     last_per_day: dict[str, float] = {}
@@ -858,7 +836,7 @@ async def retailer_data_health() -> dict:
 
 @mcp.tool(
     "list_cities",
-    description="List the cities we support, with whether each one has priced data today.",
+    description="List the cities we support, with whether each one has priced data in the last crawl.",
     annotations=READ_ONLY,
 )
 async def list_cities() -> list[dict]:
@@ -872,9 +850,9 @@ async def list_cities() -> list[dict]:
 @mcp.tool(
     "customer_best_today",
     description=(
-        "Customer picks: best-value products in a category for one city today, scored from rating, review count "
-        "and price. Returns a random selection from the top candidates. Pass exclude_asins with products already "
-        "shown to get new ones."
+        "Customer picks: best-value products in a category for one city, from the last crawl, scored from rating, "
+        "review count and price. Returns a random selection from the top candidates. Pass exclude_asins with products "
+        "already shown to get new ones."
     ),
     annotations=READ_ONLY,
 )
@@ -884,22 +862,16 @@ async def customer_best_today(
     limit: int = 5,
     exclude_asins: list[str] | None = None,
     pool_size: int = 30,
-    observed_on: str | None = None,
 ) -> dict:
     pattern = {"$regex": f"^{re.escape(category)}$", "$options": "i"}
     products = {p["asin"]: p for p in await db.products.find(
         {"$or": [{"breadcrumbs": pattern}, {"category_names": pattern}]}
     ).limit(CANDIDATE_CAP).to_list(None)}
-    start, end = _day_window(observed_on)
-    offer_filter: dict[str, Any] = {
+    offers = await db.city_offers.find({
         "city": city,
         "asin": {"$in": list(products), "$nin": exclude_asins or []},
         "price": {"$ne": None},
-    }
-    if start is not None:
-        in_window = {"$gte": start, "$lt": end}
-        offer_filter["$or"] = [{"listing_scraped_at": in_window}, {"detail_scraped_at": in_window}]
-    offers = await db.city_offers.find(offer_filter).limit(CANDIDATE_CAP).to_list(None)
+    }).limit(CANDIDATE_CAP).to_list(None)
     if not offers:
         latest = await db.city_offers.find_one({"city": city}, {"_id": 0, "listing_scraped_at": 1}, sort=[("listing_scraped_at", -1)])
         return {
@@ -907,7 +879,7 @@ async def customer_best_today(
             "city": city,
             "items": [],
             "latest_observed_at": latest["listing_scraped_at"].isoformat() if latest and latest.get("listing_scraped_at") else None,
-            "note": "No priced products observed today in this category and city. Ask the user to wait for the next crawl.",
+            "note": "No priced products in this category and city in the last crawl.",
         }
 
     prices = [o["price"] for o in offers]
