@@ -4,7 +4,8 @@ services:
   mongo:
     image: mongo:7
     ports:
-      - "27018:27017"
+      # Host port 27019, so it can run alongside the crawler's MongoDB on 27018
+      - "27019:27017"
     volumes:
       - amazon_crawler_mongo:/data/db
     restart: unless-stopped

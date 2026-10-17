@@ -3,6 +3,7 @@ gunicorn>=23
 whitenoise>=6
 httpx>=0.28
 pymongo>=4.19
+pydantic>=2.14
 pydantic-settings>=2.16
 numpy>=2
 scikit-learn>=1.9

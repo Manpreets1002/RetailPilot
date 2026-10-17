@@ -1,3 +1,4 @@
 mcp>=1.30,<2
 pymongo>=4.19
+pydantic>=2.14
 pydantic-settings>=2.16

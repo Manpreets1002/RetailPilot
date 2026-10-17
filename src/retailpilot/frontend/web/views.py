@@ -171,7 +171,12 @@ def retailer(request: HttpRequest):
     gst = _float(request.GET.get("gst"), analytics.DEFAULT_GST_PCT)
     fees = _float(request.GET.get("fees"), 0.0)
     landed = (unit_cost + shipping) * (1 + duty / 100)
-    scenarios = analytics.margin_scenarios(sel["price"], lowest, landed, gst, fees, peer_prices) if unit_cost > 0 else []
+    scenarios, fees_error = [], None
+    if unit_cost > 0:
+        try:
+            scenarios = analytics.margin_scenarios(sel["price"], lowest, landed, gst, fees, peer_prices)
+        except ValueError as exc:
+            fees_error = str(exc)
 
     sent = analytics.sentiment(data)
     product_sent = analytics.product_sentiment(sent, asin)
@@ -210,6 +215,7 @@ def retailer(request: HttpRequest):
         "fees": fees,
         "landed": landed,
         "scenarios": scenarios,
+        "fees_error": fees_error,
         "sentiment": product_sent,
         "sentiment_accuracy": sent["accuracy"] if sent else None,
         "pos_terms": sent["pos_terms"] if sent else [],

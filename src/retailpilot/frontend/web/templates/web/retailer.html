@@ -130,7 +130,9 @@
         <button class="btn" type="submit">Calculate</button>
       </form>
     </div>
-    {% if scenarios %}
+    {% if fees_error %}
+      <div class="alert">{{ fees_error }}</div>
+    {% elif scenarios %}
     <div class="chart-grid">
       <div class="card">
         <h3>Contribution by scenario</h3>

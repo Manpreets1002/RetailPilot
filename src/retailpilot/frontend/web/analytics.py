@@ -56,6 +56,8 @@ def observed_at(offer: dict):
 
 
 def margin_at(price: float, landed: float, gst_pct: float, fees_pct: float) -> dict:
+    if fees_pct >= 100:
+        raise ValueError("Marketplace fees must be below 100%.")
     net = price / (1 + gst_pct / 100)
     fees = net * fees_pct / 100
     contribution = net - landed - fees
