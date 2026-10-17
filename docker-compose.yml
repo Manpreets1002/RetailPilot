@@ -65,7 +65,6 @@ services:
     depends_on:
       - mongo
     restart: unless-stopped
-    profiles: ["tools"]
 
 volumes:
   amazon_crawler_mongo:
