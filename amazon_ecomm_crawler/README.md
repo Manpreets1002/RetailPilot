@@ -7,8 +7,10 @@ products, prices, ratings, delivery and reviews in MongoDB.
 
 1. **Load cities.** Reads the cities from [`cities.json`](cities.json): 10 tier-1
    cities, each with a delivery pincode.
-2. **Discover subcategories.** Reads the "Department" filter on the Electronics
-   search page and finds 18 subcategories (Mobiles, Computers, Headphones, TV, Cameras, …).
+2. **Pick subcategories.** Crawls the 12 Electronics subcategories listed in
+   `SUBCATEGORIES` in [`crawler.py`](crawler.py) (Mobiles, Computers, Headphones, TV,
+   Cameras, …). `--list-categories` shows Amazon's live list of all 18 and marks the
+   12; `--categories NODE…` crawls others for a single run.
 3. **Set the city.** For each city it opens a new session and sets that city's
    delivery pincode, the same way the "Deliver to" popup does. Amazon confirms the
    city, and every page is checked to make sure it is still delivering to that pincode.
@@ -52,6 +54,28 @@ it isn't retried for 5 minutes.
 
 Headless mode handles the challenge and button checks, but not image captchas. If
 one appears, the job fails and is retried later.
+
+## Proxies
+
+Amazon blocks cloud server IPs much more than home connections. With proxies set,
+each fetcher (one per city per worker) gets its own list of routes and moves to the
+next one whenever it is blocked, instead of waiting out a backoff:
+
+```env
+CRAWL_PROXIES=45.38.107.97:6014:user:pass,64.137.96.74:6641:user:pass
+CRAWL_PROXY_MODE=fallback      # fallback | always | off
+```
+
+- **fallback** (default): direct connection first, proxies only after a block. Saves
+  proxy bandwidth: a product page is about 350 KB and a search page about 190 KB.
+- **always**: every request goes through a proxy. **off**: ignore the list.
+- Each fetcher starts on a different proxy, so workers spread over the IPs.
+- The fallback browser uses the same proxy as the HTTP client, because Amazon ties
+  its firewall token to the IP as well as to the browser.
+- Logs show proxies as `host:port` only, never the password.
+- One entry per IP: the same IP under a second username doesn't get past a block.
+  Shared data-centre proxies are blocked often; Indian residential or ISP proxies
+  work much better for amazon.in.
 
 ## Workers (Redis + RQ)
 
@@ -116,7 +140,7 @@ docker compose --profile crawl up -d --build
 ```
 
 That starts `mongo`, `redis`, and `crawler-worker` (`CRAWL_WORKERS` workers). It also runs
-`crawler-start` once. It finds the 18 Electronics categories, queues the first
+`crawler-start` once. It takes the 12 subcategories in `SUBCATEGORIES` (crawler.py), queues the first
 listing job for every (city, category), and exits. By default that is all 10 cities
 in `cities.json`. Set `CRAWL_CITIES=mumbai,delhi` in `.env` to crawl fewer.
 
@@ -128,7 +152,7 @@ How long a run takes depends on the limits in `.env`:
 | Everything (`0`/`0`/`0`), `CRAWL_DETAIL_MODE=once` | 72k listing + ~240k product pages | **3–4 days** |
 | Everything, `CRAWL_DETAIL_MODE=per_city` | 72k + ~2.4M | about a month |
 
-A full crawl is about 18 categories × up to 400 pages × 33 products per city.
+A full crawl is about 12 subcategories × up to 400 pages × 33 products per city.
 Overlap between categories makes the real number of products lower. Plan for
 10–20 GB of Mongo disk. If the stack restarts mid-run, product pages fetched within
 `CRAWL_REFRESH_HOURS` are skipped, so a restart doesn't start from zero.
@@ -302,7 +326,8 @@ db.price_history.find({asin: "B0CCZ26B5V", city: "delhi"}).sort({scraped_at: -1}
 | `cities.json` | The 10 cities and pincodes to crawl |
 | `crawler.py` | CLI and city → category → product crawl loop |
 | `http_client.py` | Chrome-fingerprint session, pincode/location setting, delays, retries, bot-check detection, robots.txt, browser fallback trigger |
-| `browser_session.py` | Playwright browser: passes the bot check, sets the pincode, returns cookies for HTTP |
+| `browser_session.py` | Playwright browser: shared Chrome identity, passes the bot check, sets the pincode, returns cookies for HTTP; kept-open browser for blocked IPs |
+| `proxies.py` | Proxy list parsing and per-fetcher route order (`CRAWL_PROXIES`, `CRAWL_PROXY_MODE`) |
 | `jobs.py` | Queue jobs: one per (city, category), plus the closing job for the run |
 | `worker.py` | RQ worker that runs the queued jobs |
 | `parsers.py` | Search page, product page (incl. delivery), department parsers; city/common field split |

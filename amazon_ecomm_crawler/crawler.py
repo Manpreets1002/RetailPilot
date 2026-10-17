@@ -32,48 +32,32 @@ from storage import Store
 log = logging.getLogger("crawler")
 
 
-# Electronics subcategories on amazon.in (the "Department" filter, Oct 2026). Used when the live
-# filter can't be read (bot check, layout change), so a run never collapses into one category.
-KNOWN_SUBCATEGORIES = [
-    {"name": "Accessories", "node": "1388867031"},
+# The Electronics subcategories (amazon.in browse nodes) every run crawls. Left out on purpose:
+# Accessories, Car & Vehicle Electronics, Telephones & Accessories, Warranties,
+# eBook Readers & Accessories, General Purpose Batteries & Battery Chargers.
+# `--list-categories` shows Amazon's live list; `--categories NODE...` crawls others for one run.
+SUBCATEGORIES = [
     {"name": "Cameras & Photography", "node": "1388977031"},
-    {"name": "Car & Vehicle Electronics", "node": "1389221031"},
     {"name": "Computers & Accessories", "node": "1458204031"},
     {"name": "GPS & Accessories", "node": "1389315031"},
     {"name": "Home Audio", "node": "1389335031"},
     {"name": "Home Theater, TV & Video", "node": "1389375031"},
     {"name": "Mobiles & Accessories", "node": "1389401031"},
     {"name": "Portable Media Players", "node": "1389433031"},
-    {"name": "Radio Communication", "node": "1389462031"},
+
     {"name": "Tablets", "node": "1375458031"},
-    {"name": "Telephones & Accessories", "node": "1389481031"},
-    {"name": "Warranties", "node": "1389493031"},
-    {"name": "eBook Readers & Accessories", "node": "1389494031"},
     {"name": "Wearable Technology", "node": "11599648031"},
-    {"name": "General Purpose Batteries & Battery Chargers", "node": "1388871031"},
     {"name": "Headphones, Earbuds & Accessories", "node": "29561348031"},
     {"name": "Power Accessories", "node": "1388973031"},
 ]
 
 
-def discover_categories(fetcher: Fetcher, attempts: int = 3) -> list[dict]:
-    for attempt in range(1, attempts + 1):
-        html = fetcher.get(f"/s?k={settings.search_index}&i={settings.search_index}")
-        cats = parse_departments(html) if html else []
-        # Drop the root node itself if it shows up as a filter entry.
-        cats = [c for c in cats if c["node"] != settings.root_node]
-        if cats:
-            return cats
-        log.warning("Department filter not found (attempt %d/%d)", attempt, attempts)
-    return fallback_categories("Department filter not found")
-
-
-def fallback_categories(reason: str) -> list[dict]:
-    if settings.root_node == "976419031":  # amazon.in Electronics
-        log.warning("%s; using the built-in list of %d Electronics subcategories", reason, len(KNOWN_SUBCATEGORIES))
-        return list(KNOWN_SUBCATEGORIES)
-    log.warning("%s; falling back to the root node %s", reason, settings.root_node)
-    return [{"name": "Electronics", "node": settings.root_node}]
+def discover_categories(fetcher: Fetcher) -> list[dict]:
+    """Amazon's live Electronics subcategories (the search page's "Department" filter)."""
+    html = fetcher.get(f"/s?k={settings.search_index}&i={settings.search_index}")
+    cats = parse_departments(html) if html else []
+    # Drop the root node itself if it shows up as a filter entry.
+    return [c for c in cats if c["node"] != settings.root_node]
 
 
 def search_url(node: str, page: int) -> str:
@@ -191,7 +175,8 @@ def main() -> int:
                     help="cities to crawl, by slug/name/pincode from cities.json (default: CRAWL_CITIES, else all)")
     ap.add_argument("--list-cities", action="store_true", help="print the cities in cities.json and exit")
     ap.add_argument("--list-categories", action="store_true", help="print subcategories and exit")
-    ap.add_argument("--categories", nargs="*", help="browse node IDs to crawl (default: all discovered)")
+    ap.add_argument("--categories", nargs="*",
+                    help="browse node IDs to crawl (default: the 12 in SUBCATEGORIES)")
     ap.add_argument("--pages", type=int, default=settings.max_pages_per_category, help="max pages per category, 0 = all")
     ap.add_argument("--products", type=int, default=settings.max_products_per_category, help="max products per category, 0 = all")
     ap.add_argument("--no-details", action="store_true", help="skip product detail pages")
@@ -224,22 +209,21 @@ def main() -> int:
             log.info("Queue still has %d jobs from an earlier run; not queuing a new one", n)
             return 0
 
-    # Subcategories are the same in every city, so discover them once without a location.
-    discovery = Fetcher(settings)
-    try:
-        discovery.warm_up()
-        cats = discover_categories(discovery)
-    except LocationError as exc:
-        cats = fallback_categories(f"Category discovery failed ({exc})")
-
     if args.list_categories:
-        for c in cats:
-            print(f"{c['node']:>14}  {c['name']}")
+        # Live list from Amazon, to look up node IDs; marks the ones every run crawls.
+        discovery = Fetcher(settings)
+        discovery.warm_up()
+        crawled = {c["node"] for c in SUBCATEGORIES}
+        for c in discover_categories(discovery):
+            print(f"{c['node']:>14}  {'*' if c['node'] in crawled else ' '} {c['name']}")
+        print("\n* = crawled every run (SUBCATEGORIES in crawler.py)")
         return 0
 
+    cats = list(SUBCATEGORIES)
     if args.categories:
-        by_node = {c["node"]: c for c in cats}
+        by_node = {c["node"]: c for c in SUBCATEGORIES}
         cats = [by_node.get(n, {"name": n, "node": n}) for n in args.categories]
+    log.info("Crawling %d subcategories: %s", len(cats), ", ".join(c["name"] for c in cats))
 
     store = Store(settings.mongo_uri, settings.mongo_db)
     params = vars(args) | {"cities": [c["slug"] for c in cities], "categories": [c["node"] for c in cats]}

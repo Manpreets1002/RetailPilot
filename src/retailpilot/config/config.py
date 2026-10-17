@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     crawl_pages_per_job: int = Field(10, validation_alias="CRAWL_PAGES_PER_JOB")
     crawl_details_per_job: int = Field(20, validation_alias="CRAWL_DETAILS_PER_JOB")
     crawl_refresh_hours: float = Field(24, validation_alias="CRAWL_REFRESH_HOURS")
+    # Proxies (see amazon_ecomm_crawler/proxies.py): host:port:user:password entries, comma separated.
+    crawl_proxies: str = Field("", validation_alias="CRAWL_PROXIES")
+    crawl_proxy_mode: str = Field("fallback", validation_alias="CRAWL_PROXY_MODE")  # fallback | always | off
     crawl_job_timeout: int = Field(3 * 3600, validation_alias="CRAWL_JOB_TIMEOUT")
 
     @property

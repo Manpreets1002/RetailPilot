@@ -37,7 +37,7 @@ IMPORT_TO_DIST = {
 }
 # Modules this project defines itself, so they are not third-party packages.
 LOCAL_MODULES = {"retailpilot", "web", "config", "mcp_connection", "mcp_server", "parsers", "http_client",
-                 "storage", "crawler", "browser_session", "jobs", "worker", "manage", "tests", "support",
+                 "storage", "crawler", "browser_session", "jobs", "worker", "proxies", "manage", "tests", "support",
                  "sample_data", "conftest"}
 
 

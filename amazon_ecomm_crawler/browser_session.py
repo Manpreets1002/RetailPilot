@@ -8,8 +8,12 @@ case we open a real Chromium with Playwright and let it do what Amazon asks:
      or, in a visible window (BROWSER_HEADLESS=false), wait for a person to solve
      the image captcha.
   2. Set the delivery pincode through the real "Deliver to" popup.
-  3. Return the browser's cookies, which the curl_cffi session then reuses, so
-     scraping carries on over fast HTTP with the location already set.
+  3. Return the browser's cookies and user agent, which the curl_cffi session then
+     reuses, so scraping carries on over fast HTTP with the location already set.
+
+From some IPs (cloud servers especially) Amazon's firewall keeps blocking plain HTTP
+even with the browser's cookies. Then BrowserFetcher keeps one Chromium open per
+worker process, with one tab per city, and fetches the pages through it instead.
 """
 
 import contextlib
@@ -21,6 +25,7 @@ from pathlib import Path
 
 from filelock import FileLock, Timeout
 
+import proxies
 from config import Settings
 
 log = logging.getLogger(__name__)
@@ -30,6 +35,46 @@ BOT_CHECK_MARKERS = (
     "Enter the characters you see below",
     "api-services-support@amazon.com",
 )
+
+
+def chrome_identity(impersonate: str) -> dict:
+    """One browser identity shared by curl_cffi and Chromium.
+
+    Amazon's firewall token is earned in the browser and tied to the identity it saw, so
+    the HTTP client must present the same one: curl_cffi's Chrome TLS/HTTP2 fingerprint
+    (e.g. chrome150) plus the matching User-Agent and client hints. The platform says
+    Linux because that is what the browser really runs on, and its JavaScript shows it.
+    """
+    from curl_cffi.requests.impersonate import DEFAULT_CHROME
+
+    target = DEFAULT_CHROME if impersonate == "chrome" else impersonate
+    major = re.search(r"\d+", target)
+    version = major.group(0) if major else "150"
+    return {
+        "target": target,
+        "user_agent": f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                      f"Chrome/{version}.0.0.0 Safari/537.36",
+        "client_hints": {
+            "sec-ch-ua": f'"Not;A=Brand";v="8", "Chromium";v="{version}", "Google Chrome";v="{version}"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Linux"',
+        },
+    }
+
+
+def _goto(page, url: str, s: Settings):
+    """page.goto that tolerates Amazon reloading the page by itself (after a pincode change or a
+    firewall challenge), which aborts our navigation with net::ERR_ABORTED."""
+    for attempt in range(1, 4):
+        try:
+            return page.goto(url, wait_until="domcontentloaded", timeout=s.browser_timeout * 1000)
+        except Exception as exc:
+            if "ERR_ABORTED" not in str(exc) or attempt == 3:
+                raise
+            with contextlib.suppress(Exception):
+                page.wait_for_load_state("domcontentloaded", timeout=10_000)
+            time.sleep(2)
+    return None
 
 
 class BrowserError(Exception):
@@ -126,7 +171,7 @@ def _set_pincode(page, pincode: str, s: Settings) -> str | None:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:  # noqa: BLE001, S110 - ads keep the network busy; the address is already saved
             pass
-        page.goto(s.base_url + "/s?k=electronics", wait_until="domcontentloaded", timeout=timeout_ms)
+        _goto(page, s.base_url + "/s?k=electronics", s)
         _pass_bot_check(page, s)
         loc = _location_text(page)
         if loc and pincode in loc:
@@ -160,37 +205,77 @@ def _browser_slot(limit: int):
         time.sleep(2)
 
 
-def bootstrap(s: Settings, pincode: str | None) -> dict:
-    """Open a browser, pass the bot check, set the pincode and return {cookies, location}."""
-    try:
-        import playwright.sync_api  # noqa: F401 - fail fast before waiting for a slot
-    except ImportError as exc:
-        raise BrowserError("playwright is not installed (pip install playwright && playwright install chromium)") from exc
-    with _browser_slot(s.browser_max_concurrent):
-        return _bootstrap(s, pincode)
+_playwright = None
 
 
-def _bootstrap(s: Settings, pincode: str | None) -> dict:
-    from playwright.sync_api import sync_playwright
-
-    log.info("Browser: opening %s Chromium%s", "headless" if s.browser_headless else "visible",
-             f" for pincode {pincode}" if pincode else "")
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=s.browser_headless,
-            executable_path=s.browser_executable or None,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
-        )
+def _get_playwright():
+    """One Playwright per process: the sync API can't run two at once in the same thread."""
+    global _playwright
+    if _playwright is None:
         try:
-            # Headless Chromium says "HeadlessChrome" in its user agent; drop that.
-            ua = browser.new_page().evaluate("navigator.userAgent").replace("HeadlessChrome", "Chrome")
-            ctx = browser.new_context(user_agent=ua, locale="en-IN", viewport={"width": 1366, "height": 900},
-                                      extra_http_headers={"Accept-Language": s.accept_language})
-            page = ctx.new_page()
-            page.goto(s.base_url + "/", wait_until="domcontentloaded", timeout=s.browser_timeout * 1000)
-            _pass_bot_check(page, s)
-            location = _set_pincode(page, pincode, s) if pincode else _location_text(page)
-            cookies = ctx.cookies()
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise BrowserError("playwright is not installed (pip install playwright && playwright install chromium)") from exc
+        _playwright = sync_playwright().start()
+    return _playwright
+
+
+def _launch(s: Settings):
+    """Start Chromium; returns (browser, the shared identity's user agent)."""
+    browser = _get_playwright().chromium.launch(
+        headless=s.browser_headless,
+        executable_path=s.browser_executable or None,
+        args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+    )
+    return browser, chrome_identity(s.impersonate)["user_agent"]
+
+
+SKIP_RESOURCES = {"image", "media", "font"}
+
+
+def _skip_heavy(route) -> None:
+    if route.request.resource_type in SKIP_RESOURCES:
+        route.abort()
+    else:
+        route.continue_()
+
+
+def _open_city_page(browser, ua: str, pincode: str | None, s: Settings, lean: bool = False,
+                    proxy: str | None = None):
+    """New tab with its own cookies, past the bot check and delivering to `pincode`. Returns (page, location).
+
+    lean=True skips images, video and fonts: pages load much faster and the HTML (with all
+    image URLs) is the same. Scripts stay on, since the firewall challenge needs them.
+    """
+    hints = chrome_identity(s.impersonate)["client_hints"]
+    ctx = browser.new_context(user_agent=ua, locale="en-IN", viewport={"width": 1366, "height": 900},
+                              extra_http_headers={"Accept-Language": s.accept_language, **hints},
+                              proxy=proxies.playwright_proxy(proxy))
+    if lean:
+        ctx.route("**/*", _skip_heavy)
+    page = ctx.new_page()
+    _goto(page, s.base_url + "/", s)
+    _pass_bot_check(page, s)
+    location = _set_pincode(page, pincode, s) if pincode else _location_text(page)
+    if location is None:  # no 'Deliver to' header at all: a firewall page, not Amazon
+        ctx.close()
+        raise BrowserError("Page is blocked (no Amazon header)")
+    return page, location
+
+
+def bootstrap(s: Settings, pincode: str | None, proxy: str | None = None) -> dict:
+    """Open a browser, pass the bot check, set the pincode and return {cookies, user_agent, location}.
+
+    `proxy` must be the same route the HTTP client uses, or the cookies won't carry over.
+    """
+    _get_playwright()  # fail fast if Playwright is missing, before waiting for a slot
+    with _browser_slot(s.browser_max_concurrent):
+        log.info("Browser: opening %s Chromium%s via %s", "headless" if s.browser_headless else "visible",
+                 f" for pincode {pincode}" if pincode else "", proxies.label(proxy))
+        browser, ua = _launch(s)
+        try:
+            page, location = _open_city_page(browser, ua, pincode, s, proxy=proxy)
+            cookies = page.context.cookies()
         except BrowserError:
             raise
         except Exception as exc:
@@ -199,4 +284,77 @@ def _bootstrap(s: Settings, pincode: str | None) -> dict:
             browser.close()
 
     log.info("Browser: got %d cookies, location '%s'", len(cookies), location)
-    return {"cookies": cookies, "location": location}
+    return {"cookies": cookies, "user_agent": ua, "location": location}
+
+
+class BrowserFetcher:
+    """Fetches pages through a Chromium kept open for the whole worker process.
+
+    Used when plain HTTP stays blocked even with browser cookies. One browser per
+    process, one tab (with its own cookies, pincode and proxy) per city and route.
+    """
+
+    _instance: "BrowserFetcher | None" = None
+
+    def __init__(self, s: Settings):
+        self.s = s
+        self.browser = None
+        self.ua = ""
+        self.pages: dict[tuple, object] = {}
+
+    @classmethod
+    def shared(cls, s: Settings) -> "BrowserFetcher":
+        if cls._instance is None:
+            cls._instance = cls(s)
+        return cls._instance
+
+    def _page(self, pincode: str | None, proxy: str | None = None):
+        key = (pincode or "-", proxy)
+        page = self.pages.get(key)
+        if page is not None and not page.is_closed():
+            return page
+        if self.browser is None or not self.browser.is_connected():
+            log.info("Browser: starting a kept-open Chromium for page fetching")
+            self.browser, self.ua = _launch(self.s)
+            self.pages.clear()
+        try:
+            page, location = _open_city_page(self.browser, self.ua, pincode, self.s, lean=True, proxy=proxy)
+        except BrowserError:
+            raise
+        except Exception as exc:
+            raise BrowserError(f"Browser tab for {key[0]} via {proxies.label(proxy)} failed: {exc}") from exc
+        log.info("Browser: tab ready for pincode %s via %s ('%s')", key[0], proxies.label(proxy), location)
+        self.pages[key] = page
+        return page
+
+    def reset(self, pincode: str | None, proxy: str | None = None) -> None:
+        """Drop the city's tab on this route; the next fetch opens a fresh one and sets the pincode again."""
+        page = self.pages.pop((pincode or "-", proxy), None)
+        if page is not None:
+            with contextlib.suppress(Exception):
+                page.context.close()
+
+    def fetch_text(self, url: str, pincode: str | None, proxy: str | None = None) -> str:
+        """Plain text of a page, e.g. robots.txt (which the browser shows wrapped in HTML)."""
+        page = self._page(pincode, proxy)
+        try:
+            _goto(page, url, self.s)
+            return page.inner_text("body")
+        except Exception as exc:
+            raise BrowserError(f"Browser fetch failed for {url}: {str(exc).splitlines()[0]}") from exc
+
+    def fetch(self, url: str, pincode: str | None, proxy: str | None = None) -> tuple[int, str]:
+        """Load `url` in the city's tab for this route; returns (HTTP status, HTML)."""
+        page = self._page(pincode, proxy)
+        try:
+            resp = _goto(page, url, self.s)
+            # A firewall challenge (HTTP 202) solves itself and reloads; wait for the real page header.
+            with contextlib.suppress(Exception):
+                page.wait_for_selector("#glow-ingress-line2", timeout=15_000)
+            _pass_bot_check(page, self.s)
+            return (resp.status if resp else 0), page.content()
+        except BrowserError:
+            raise
+        except Exception as exc:
+            self.reset(pincode, proxy)
+            raise BrowserError(f"Browser fetch failed for {url}: {str(exc).splitlines()[0]}") from exc

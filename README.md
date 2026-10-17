@@ -138,7 +138,7 @@ Every push and pull request runs [`.github/workflows/ci-cd.yml`](.github/workflo
 
 Full details are in the [crawler guide](amazon_ecomm_crawler/README.md). In short:
 
-- **Scope:** the Electronics department on Amazon.in, split into its 18 subcategories. The server is set to 3 cities (Delhi, Mumbai, Bengaluru) and 50 search pages per subcategory, with every product and every review shown on each product page.
+- **Scope:** the Electronics department on Amazon.in, limited to 12 of its 18 subcategories (cameras, computers, GPS, home audio, TV & video, mobiles, media players, radio, tablets, wearables, headphones, power accessories). The server is set to 3 cities (Delhi, Mumbai, Bengaluru) and 50 search pages per subcategory, with every product and every review shown on each product page.
 - **Workers:** a run is split into small jobs on a Redis queue: 10 search pages per job, then product pages in batches of 20. Each product page is fetched once; each city's price, stock and delivery come from that city's search results.
 - **Browser fallback:** when Amazon blocks plain HTTP or won't set the delivery pincode, a headless Chromium passes the check, sets the pincode through the real "Deliver to" popup, and hands its cookies back to the fast HTTP session.
 - **Schedule:** cron on the VM starts a run at 5 AM and 5 PM IST. A start is skipped if the previous run is still going. A full run of the current settings takes about 10–12 hours; the second run of the day mostly refreshes prices and finishes faster.
@@ -228,6 +228,7 @@ Settings are read from `.env`. Every key, with safe defaults and comments, is in
 | Crawler: scope | `CRAWL_CITIES`, `CRAWL_MAX_PAGES`, `CRAWL_MAX_PRODUCTS`, `CRAWL_MAX_REVIEWS`, `CRAWL_DETAIL_MODE`, `CRAWL_REFRESH_HOURS` |
 | Crawler: pace | `CRAWL_MIN_DELAY`, `CRAWL_MAX_DELAY`, `CRAWL_MAX_RETRIES`, `STALE_HOURS` |
 | Crawler: browser fallback | `BROWSER_FALLBACK`, `BROWSER_HEADLESS`, `BROWSER_EXECUTABLE`, `BROWSER_MANUAL_WAIT`, `BROWSER_MAX_CONCURRENT` |
+| Crawler: proxies | `CRAWL_PROXIES`, `CRAWL_PROXY_MODE` |
 | Crawler: workers | `REDIS_URL`, `CRAWL_QUEUE`, `CRAWL_WORKERS`, `CRAWL_PAGES_PER_JOB`, `CRAWL_DETAILS_PER_JOB`, `CRAWL_JOB_TIMEOUT` |
 | Web | `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` |
 
