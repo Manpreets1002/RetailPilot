@@ -32,15 +32,48 @@ from storage import Store
 log = logging.getLogger("crawler")
 
 
-def discover_categories(fetcher: Fetcher) -> list[dict]:
-    html = fetcher.get(f"/s?k={settings.search_index}&i={settings.search_index}")
-    cats = parse_departments(html) if html else []
-    # Drop the root node itself if it shows up as a filter entry.
-    cats = [c for c in cats if c["node"] != settings.root_node]
-    if not cats:
-        log.warning("No subcategories found; falling back to the root Electronics node")
-        cats = [{"name": "Electronics", "node": settings.root_node}]
-    return cats
+# Electronics subcategories on amazon.in (the "Department" filter, Oct 2026). Used when the live
+# filter can't be read (bot check, layout change), so a run never collapses into one category.
+KNOWN_SUBCATEGORIES = [
+    {"name": "Accessories", "node": "1388867031"},
+    {"name": "Cameras & Photography", "node": "1388977031"},
+    {"name": "Car & Vehicle Electronics", "node": "1389221031"},
+    {"name": "Computers & Accessories", "node": "1458204031"},
+    {"name": "GPS & Accessories", "node": "1389315031"},
+    {"name": "Home Audio", "node": "1389335031"},
+    {"name": "Home Theater, TV & Video", "node": "1389375031"},
+    {"name": "Mobiles & Accessories", "node": "1389401031"},
+    {"name": "Portable Media Players", "node": "1389433031"},
+    {"name": "Radio Communication", "node": "1389462031"},
+    {"name": "Tablets", "node": "1375458031"},
+    {"name": "Telephones & Accessories", "node": "1389481031"},
+    {"name": "Warranties", "node": "1389493031"},
+    {"name": "eBook Readers & Accessories", "node": "1389494031"},
+    {"name": "Wearable Technology", "node": "11599648031"},
+    {"name": "General Purpose Batteries & Battery Chargers", "node": "1388871031"},
+    {"name": "Headphones, Earbuds & Accessories", "node": "29561348031"},
+    {"name": "Power Accessories", "node": "1388973031"},
+]
+
+
+def discover_categories(fetcher: Fetcher, attempts: int = 3) -> list[dict]:
+    for attempt in range(1, attempts + 1):
+        html = fetcher.get(f"/s?k={settings.search_index}&i={settings.search_index}")
+        cats = parse_departments(html) if html else []
+        # Drop the root node itself if it shows up as a filter entry.
+        cats = [c for c in cats if c["node"] != settings.root_node]
+        if cats:
+            return cats
+        log.warning("Department filter not found (attempt %d/%d)", attempt, attempts)
+    return fallback_categories("Department filter not found")
+
+
+def fallback_categories(reason: str) -> list[dict]:
+    if settings.root_node == "976419031":  # amazon.in Electronics
+        log.warning("%s; using the built-in list of %d Electronics subcategories", reason, len(KNOWN_SUBCATEGORIES))
+        return list(KNOWN_SUBCATEGORIES)
+    log.warning("%s; falling back to the root node %s", reason, settings.root_node)
+    return [{"name": "Electronics", "node": settings.root_node}]
 
 
 def search_url(node: str, page: int) -> str:
@@ -197,8 +230,7 @@ def main() -> int:
         discovery.warm_up()
         cats = discover_categories(discovery)
     except LocationError as exc:
-        log.warning("Category discovery failed (%s); using the root Electronics node", exc)
-        cats = [{"name": "Electronics", "node": settings.root_node}]
+        cats = fallback_categories(f"Category discovery failed ({exc})")
 
     if args.list_categories:
         for c in cats:
