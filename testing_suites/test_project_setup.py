@@ -33,10 +33,12 @@ IMPORT_TO_DIST = {
     "langchain_google_genai": "langchain-google-genai",
     "pydantic_settings": "pydantic-settings",
     "curl_cffi": "curl-cffi",
+    "bson": "pymongo",  # bson ships inside pymongo
 }
 # Modules this project defines itself, so they are not third-party packages.
 LOCAL_MODULES = {"retailpilot", "web", "config", "mcp_connection", "mcp_server", "parsers", "http_client",
-                 "storage", "crawler", "manage", "tests", "support", "sample_data", "conftest"}
+                 "storage", "crawler", "browser_session", "jobs", "worker", "manage", "tests", "support",
+                 "sample_data", "conftest"}
 
 
 def _read_requirement_file(path) -> list[str]:

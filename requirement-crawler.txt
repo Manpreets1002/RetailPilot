@@ -7,3 +7,4 @@ pydantic-settings>=2.16
 playwright>=1.50
 redis>=5
 rq>=2
+filelock>=3.13

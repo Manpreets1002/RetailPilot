@@ -71,6 +71,6 @@ def test_every_css_class_used_in_templates_and_scripts_is_defined():
 
 def test_the_assistant_widget_is_wired_to_its_script():
     assistant = _read(STATIC / "js" / "assistant.js")
-    for hook in ("assistant-config", "rp-fab", "rp-panel", "rp-form", "rp-input", "rp-messages"):
+    for hook in ("assistant-config", "rp-toggle", "rp-panel", "rp-form", "rp-input", "rp-messages"):
         assert hook in assistant
     assert 'json_script:"assistant-config"' in _read(TEMPLATES / "_assistant.html")

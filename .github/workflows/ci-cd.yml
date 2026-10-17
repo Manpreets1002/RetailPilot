@@ -1,0 +1,159 @@
+# CI on every push and pull request: tests (with a real MongoDB) and a Docker build of the
+# backend, frontend and MCP images.
+# CD on pushes to main: once CI passes, build and deploy to Cloud Run only the services whose
+# files changed (backend and/or frontend). Run it by hand (Actions -> CI/CD -> Run workflow)
+# to deploy both.
+#
+# The crawler is not part of CI/CD. It runs on the VM; update it there by hand:
+#   cd ~/RetailPilot && git pull && make crawler
+#
+# No GitHub secrets needed: the deploy job signs in to Google Cloud with Workload Identity
+# Federation, which only trusts pushes to main of Manpreets1002/RetailPilot. Cloud Run keeps
+# each service's env vars, secrets and network settings between deploys; to change those,
+# use scripts/deploy-cloudrun.sh.
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: retailpilot-gemini-10162213
+  REGION: asia-south1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27018:27017   # same host port as docker-compose.yml and .env.example
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirement-*.txt
+
+      # requirement-crawler.txt is installed only because test_project_setup checks that every
+      # requirements file is consistent; the crawler itself is not tested, built or deployed here.
+      - name: Install dependencies
+        run: |
+          pip install -r requirement-backend.txt -r requirement-frontend.txt \
+                      -r requirement-crawler.txt -r requirement-dev.txt
+
+      # The suites read .env; the example has every key and points Mongo at localhost:27018.
+      - name: Create .env
+        run: cp .env.example .env
+
+      - name: Test suites
+        run: python -m pytest testing_suites -v --ignore=testing_suites/test_crawler_parsers.py
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [backend, frontend, mcp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.target }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+
+  # Which Cloud Run services this push touches.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.pick.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'src/retailpilot/__init__.py'
+              - 'src/retailpilot/config/**'
+              - 'src/retailpilot/agent/**'
+              - 'src/retailpilot/backend/**'
+              - 'src/retailpilot/mcp/**'
+              - 'requirement-backend.txt'
+              - 'requirement-mcp.txt'
+              - 'amazon_ecomm_crawler/cities.json'
+              - 'Dockerfile'
+            frontend:
+              - 'src/retailpilot/__init__.py'
+              - 'src/retailpilot/config/**'
+              - 'src/retailpilot/frontend/**'
+              - 'requirement-frontend.txt'
+              - 'Dockerfile'
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'services=["backend","frontend"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'services=${{ steps.filter.outputs.changes }}' >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: [test, build, changes]
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && needs.changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # lets the job get a Google Cloud token through Workload Identity Federation
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    concurrency:
+      group: deploy-${{ matrix.service }}
+      cancel-in-progress: false   # never cut a deploy off halfway
+    env:
+      IMAGE: asia-south1-docker.pkg.dev/retailpilot-gemini-10162213/retailpilot/${{ matrix.service }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1048586483282/locations/global/workloadIdentityPools/github/providers/github
+          service_account: github-deployer@retailpilot-gemini-10162213.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Log Docker in to Artifact Registry
+        run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.service }}
+          push: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+
+      # Only the image changes; env vars, secrets, VPC and scaling stay as they are on the service.
+      - name: Deploy retailpilot-${{ matrix.service }} to Cloud Run
+        run: gcloud run deploy "retailpilot-${{ matrix.service }}" --image "$IMAGE" --region "$REGION" --project "$PROJECT_ID" --quiet
+
+      - name: Show URL
+        run: gcloud run services describe "retailpilot-${{ matrix.service }}" --region "$REGION" --project "$PROJECT_ID" --format 'value(status.url)'

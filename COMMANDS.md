@@ -44,6 +44,20 @@ tail -f ~/crawl-cron.log                                  # see what cron did
 ./scripts/start-crawl.sh                                  # run it by hand once to test
 ```
 
+## Website and backend (Cloud Run)
+
+- **Automatic:** push to `main` → GitHub Actions runs the tests, then builds and deploys to Cloud
+  Run only what changed (backend and/or frontend). Watch it under the repo's **Actions** tab.
+- **Deploy both by hand from GitHub:** Actions → CI/CD → Run workflow (on `main`).
+- **Change env vars, secrets or settings:** `./scripts/deploy-cloudrun.sh` from a machine with gcloud.
+- The crawler is not in CI/CD. Update it on the VM: `git pull && make crawler`.
+
+```bash
+gcloud run services list --region asia-south1                                  # URLs and status
+gcloud run services logs read retailpilot-backend --region asia-south1 --limit 50
+gcloud run services logs read retailpilot-frontend --region asia-south1 --limit 50
+```
+
 ## 3. MongoDB
 
 Open the shell (type `exit` to leave):

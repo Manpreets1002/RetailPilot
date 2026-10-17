@@ -48,6 +48,13 @@ TIME_ZONE = "Asia/Kolkata"
 USE_I18N = True
 USE_TZ = True
 
+# Sessions only hold the shopper id, so keep them in a signed cookie: no database needed,
+# and they survive restarts and work across several instances (Cloud Run).
+SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+# Cloud Run (and most proxies) end HTTPS and forward plain HTTP with this header. Without it
+# Django sees http:// and rejects HTTPS form posts as cross-origin (CSRF 403).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

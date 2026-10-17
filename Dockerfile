@@ -47,7 +47,8 @@ COPY src/retailpilot/backend ./src/retailpilot/backend
 COPY src/retailpilot/mcp ./src/retailpilot/mcp
 COPY amazon_ecomm_crawler/cities.json ./amazon_ecomm_crawler/
 EXPOSE 8000
-CMD ["uvicorn", "retailpilot.backend.agent_route:app", "--host", "0.0.0.0", "--port", "8000"]
+# PORT is set by Cloud Run; 8000 elsewhere.
+CMD ["sh", "-c", "exec uvicorn retailpilot.backend.agent_route:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
 
 FROM base AS frontend
@@ -59,4 +60,6 @@ COPY src/retailpilot/frontend ./src/retailpilot/frontend
 WORKDIR /app/src/retailpilot/frontend
 RUN DJANGO_DEBUG=0 DJANGO_SECRET_KEY=build-only python manage.py collectstatic --noinput
 EXPOSE 8080
-CMD ["sh", "-c", "python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8080 --workers 2 --access-logfile -"]
+# PORT is set by Cloud Run; 8080 elsewhere. Threaded workers so a long streamed chat
+# reply isn't killed by gunicorn's 30 s worker timeout.
+CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers 2 --worker-class gthread --threads 8 --timeout 300 --access-logfile -"]

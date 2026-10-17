@@ -666,6 +666,7 @@ table.table tbody tr:hover { background: #fafaff; }
 
 /* Compare drawer: side-by-side products */
 .cart-card { width: min(760px, 100vw); }
+.compare-ask { margin-bottom: 1rem; }
 .compare-scroll { overflow-x: auto; margin-bottom: 1rem; }
 .compare-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
 .compare-table th, .compare-table td { border-bottom: 1px solid var(--line); padding: .5rem .45rem; text-align: left; vertical-align: top; min-width: 150px; }

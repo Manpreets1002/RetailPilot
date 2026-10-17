@@ -45,14 +45,14 @@ def test_landing_links_to_both_dashboards_without_the_chat_button(client):
     body = client.get("/").content.decode()
     assert reverse("retailer") in body
     assert reverse("customer") in body
-    assert 'id="rp-fab"' not in body
+    assert 'id="rp-toggle"' not in body
 
 
 def test_customer_shop_has_city_picker_cart_and_assistant(client):
     response = client.get("/customer/")
     assert response.status_code == 200
     body = response.content.decode()
-    for marker in ('id="city"', 'id="cart-btn"', 'id="categories"', 'id="rp-fab"', 'id="assistant-config"'):
+    for marker in ('id="city"', 'id="cart-btn"', 'id="categories"', 'id="rp-toggle"', 'id="assistant-config"'):
         assert marker in body, marker
 
 
@@ -63,7 +63,7 @@ def test_retailer_page_explains_when_mongodb_is_unreachable(client, monkeypatch)
     monkeypatch.setattr(analytics, "load", unreachable)
     body = client.get("/retailer/").content.decode()
     assert "Cannot read MongoDB" in body
-    assert 'id="rp-fab"' not in body
+    assert 'id="rp-toggle"' not in body
 
 
 def test_retailer_page_asks_for_a_crawl_when_there_are_no_offers(client, monkeypatch):
@@ -80,7 +80,7 @@ def test_retailer_dashboard_renders_charts_insights_and_assistant(client, datase
         assert f'id="{chart}"' in body, chart
     assert 'id="charts"' in body
     assert "Your price is 19.0% above the lowest competitor" in body
-    assert 'id="rp-fab"' in body
+    assert 'id="rp-toggle"' in body
 
 
 def test_retailer_dashboard_explains_fees_of_100_percent(client, dataset):

@@ -19,7 +19,7 @@ def test_defaults_without_env_file(monkeypatch):
         monkeypatch.delenv(key, raising=False)
     s = Settings(_env_file=None)
     assert s.mongo_uri == "mongodb://localhost:27018"
-    assert s.gemini_model == "gemini-2.5-flash"
+    assert s.gemini_model == "gemini-3.1-flash-lite"
     assert s.stale_hours == 48.0
     assert s.base_url == "https://www.amazon.in"
 

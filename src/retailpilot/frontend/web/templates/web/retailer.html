@@ -12,6 +12,11 @@
     <span class="nav-item active" aria-current="page">Retailer dashboard</span>
     <a class="nav-item" href="{% url 'customer' %}">Customer shop</a>
   </div>
+  {% if assistant %}
+  <div class="nav-right">
+    {% include "web/_assistant.html" %}
+  </div>
+  {% endif %}
 </nav>
 
 <main class="page retailer-page" id="main-content">
@@ -220,5 +225,6 @@
 </main>
 {% endblock %}
 {% block scripts %}
+{% if assistant %}<script src="{% static 'web/js/assistant.js' %}"></script>{% endif %}
 <script src="{% static 'web/js/retailer.js' %}"></script>
 {% endblock %}
