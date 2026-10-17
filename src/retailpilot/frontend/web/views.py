@@ -9,11 +9,11 @@ import plotly.graph_objects as go
 from web import analytics
 from web.backend import BackendError, get, open_stream, post
 
-PURPLE = "#5749D8"
+GREEN = "#186E43"
 TEAL = "#139F83"
 AMBER = "#E9A33E"
 RED = "#D84F5F"
-PALETTE = [PURPLE, TEAL, AMBER, RED, "#647CE8", "#8E73D2"]
+PALETTE = [GREEN, TEAL, AMBER, RED, "#647CE8", "#8E73D2"]
 
 CUSTOMER_ASSISTANT = {
     "role": "customer",
@@ -55,7 +55,7 @@ def _chart(fig: go.Figure, height: int, margin: dict | None = None) -> dict:
 def _trend_chart(history: list[tuple[str, float]]) -> dict:
     fig = go.Figure(go.Scatter(
         x=[d for d, _ in history], y=[p for _, p in history], mode="lines+markers",
-        line={"color": PURPLE, "width": 3}, marker={"size": 7, "color": PURPLE},
+        line={"color": GREEN, "width": 3}, marker={"size": 7, "color": GREEN},
         hovertemplate="%{x}<br>₹%{y:,.0f}<extra></extra>",
     ))
     fig.update_yaxes(title_text="Price (INR)")
