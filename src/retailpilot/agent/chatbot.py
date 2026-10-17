@@ -58,6 +58,10 @@ class ThreadNotWaiting(Exception):
     """The thread has no open question to answer."""
 
 
+class ToolCallFailed(Exception):
+    """An MCP tool call failed or returned something that is not JSON."""
+
+
 @tool
 async def ask_user(question: str) -> str:
     """Ask the user one short question when information needed to answer is missing. Pauses until they reply."""
@@ -297,7 +301,7 @@ class RetailPilotChat:
         try:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(raw) from exc
+            raise ToolCallFailed(raw) from exc
 
     async def threads(self, limit: int = 50) -> list[dict]:
         return await self.history.list_threads(limit)

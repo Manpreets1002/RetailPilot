@@ -595,6 +595,8 @@ async def retailer_margin_scenarios(
     gst_pct: float = 18.0,
     fees_pct: float = 0.0,
 ) -> dict:
+    if fees_pct >= 100:
+        return {"error": "Marketplace fees must be below 100%."}
     product, offer = await _own_offer(asin, city)
     if product is None or offer is None or offer.get("price") is None:
         return {"error": f"No priced offer for {asin} in {city}"}
@@ -783,12 +785,15 @@ async def customer_best_today(
         {"$or": [{"breadcrumbs": pattern}, {"category_names": pattern}]}
     ).limit(CANDIDATE_CAP).to_list(None)}
     start, end = _day_window(observed_on)
-    offers = await db.city_offers.find({
+    offer_filter: dict[str, Any] = {
         "city": city,
         "asin": {"$in": list(products), "$nin": exclude_asins or []},
         "price": {"$ne": None},
-        "$or": [{"listing_scraped_at": {"$gte": start, "$lt": end}}, {"detail_scraped_at": {"$gte": start, "$lt": end}}],
-    }).limit(CANDIDATE_CAP).to_list(None)
+    }
+    if start is not None:
+        in_window = {"$gte": start, "$lt": end}
+        offer_filter["$or"] = [{"listing_scraped_at": in_window}, {"detail_scraped_at": in_window}]
+    offers = await db.city_offers.find(offer_filter).limit(CANDIDATE_CAP).to_list(None)
     if not offers:
         latest = await db.city_offers.find_one({"city": city}, {"_id": 0, "listing_scraped_at": 1}, sort=[("listing_scraped_at", -1)])
         return {

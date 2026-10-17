@@ -1,21 +1,32 @@
+// Customer shop: pick a category, see best picks for the delivery city, and keep a cart.
 (function () {
   "use strict";
 
-  const IDLE_MS = 5 * 60 * 1000;
-  const CHECK_MS = 15 * 1000;
-  const shopper = document.getElementById("shop").dataset.shopper;
-
+  const CART_KEY = "rp-cart";
   const el = (id) => document.getElementById(id);
   const state = {
+    category: null,
     picks: [],
-    pickCategory: null,
-    threadId: null,
-    pending: null,
-    messages: [],
-    lastActivity: Date.now(),
-    nudged: false,
-    nudgeItem: null,
+    cart: loadCart(),
   };
+
+  // ------------------------------------------------------------ helpers
+
+  function loadCart() {
+    try {
+      return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveCart() {
+    try {
+      localStorage.setItem(CART_KEY, JSON.stringify(state.cart));
+    } catch (e) {
+      /* storage may be blocked; the cart then lasts for this page visit only */
+    }
+  }
 
   function csrfToken() {
     const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
@@ -45,115 +56,82 @@
     return div.innerHTML;
   }
 
-  // ------------------------------------------------------------ theme
-
-  function applyTheme(mode) {
-    document.body.classList.toggle("theme-dark", mode === "dark");
-    document.body.classList.toggle("theme-light", mode !== "dark");
-    el("theme-toggle").textContent = mode === "dark" ? "Light mode" : "Dark mode";
-    try { localStorage.setItem("rp-theme", mode); } catch (e) { /* storage may be blocked */ }
+  function amazonUrl(item) {
+    return item.url || `https://www.amazon.in/dp/${item.asin}`;
   }
 
-  el("theme-toggle").addEventListener("click", () => {
-    applyTheme(document.body.classList.contains("theme-dark") ? "light" : "dark");
+  function inCart(asin) {
+    return state.cart.some((item) => item.asin === asin);
+  }
+
+  // ------------------------------------------------------------ categories (step 1)
+
+  function renderCategories(categories) {
+    el("categories").innerHTML = categories.map((c) => `
+      <button class="cat-card" data-name="${esc(c.name)}" type="button">
+        <span class="cat-icon">${esc((c.name || "?").charAt(0).toUpperCase())}</span>
+        <b>${esc(c.name)}</b>
+        <span class="fine">${Number(c.products).toLocaleString("en-IN")} products</span>
+      </button>`).join("") || '<p class="fine">No categories have data yet. Run the crawler first.</p>';
+  }
+
+  el("categories").addEventListener("click", (event) => {
+    const card = event.target.closest(".cat-card");
+    if (!card) return;
+    state.category = card.dataset.name;
+    showPicks();
   });
 
-  // ------------------------------------------------------------ view switching
-
-  function showHome() {
-    el("home").hidden = false;
-    el("chat").hidden = true;
-  }
-
-  function showChat() {
-    el("home").hidden = true;
-    el("chat").hidden = false;
-  }
-
-  function renderMessages() {
-    const box = el("messages");
-    box.innerHTML = state.messages
-      .map((m) => `<div class="msg ${m.role}">${esc(m.content)}</div>`)
-      .join("");
-    box.scrollTop = box.scrollHeight;
-    el("pending").hidden = !state.pending;
-    el("pending").textContent = state.pending ? "RetailPilot asks: " + state.pending : "";
-    el("chat-input").placeholder = state.pending ? "Answer RetailPilot" : "Ask about a product, price or pros and cons";
-  }
-
-  // ------------------------------------------------------------ threads
-
-  async function loadThreads() {
-    try {
-      const data = await api("/api/threads/");
-      const list = el("thread-list");
-      if (!data.threads.length) {
-        list.innerHTML = '<p class="fine">Your chats will appear here.</p>';
-        return;
-      }
-      list.innerHTML = data.threads
-        .map((t) => `<button class="thread${t.thread_id === state.threadId ? " active" : ""}" data-id="${esc(t.thread_id)}" type="button">${esc((t.title || "Untitled chat").slice(0, 40))}</button>`)
-        .join("");
-    } catch (err) {
-      el("thread-list").innerHTML = `<p class="fine">${esc(err.message)}</p>`;
-    }
-  }
-
-  el("thread-list").addEventListener("click", async (event) => {
-    const button = event.target.closest(".thread");
-    if (!button) return;
-    try {
-      const data = await api(`/api/threads/${encodeURIComponent(button.dataset.id)}/messages/`);
-      state.threadId = button.dataset.id;
-      state.messages = data.messages.map((m) => ({ role: m.author === "user" ? "user" : "assistant", content: m.content }));
-      const last = data.messages[data.messages.length - 1];
-      state.pending = last && last.kind === "question" ? last.content : null;
-      state.picks = [];
-      showChat();
-      renderMessages();
-      loadThreads();
-    } catch (err) {
-      alert(err.message);
-    }
+  el("back-cats").addEventListener("click", () => {
+    state.category = null;
+    state.picks = [];
+    el("step-picks").hidden = true;
+    el("step-categories").hidden = false;
   });
 
-  el("new-chat").addEventListener("click", () => {
-    state.threadId = null;
-    state.messages = [];
-    state.pending = null;
-    showHome();
-    loadThreads();
-  });
+  // ------------------------------------------------------------ picks (step 2)
 
-  // ------------------------------------------------------------ best picks
+  function showPicks() {
+    el("step-categories").hidden = true;
+    el("step-picks").hidden = false;
+    el("pick-title").textContent = state.category;
+    el("pick-city").textContent = el("city").selectedOptions[0] ? el("city").selectedOptions[0].textContent : "your city";
+    fetchPicks();
+  }
 
   function renderPicks() {
-    const box = el("picks");
-    box.innerHTML = state.picks.map((item) => `
-      <div class="pick" data-asin="${esc(item.asin)}">
+    el("picks").innerHTML = state.picks.map((item) => `
+      <div class="pick">
         <div class="meta">${esc(item.brand || "")}</div>
         <div class="title">${esc((item.title || "").slice(0, 90))}</div>
         <div class="price">${money(item.price)} <span class="meta">MRP ${money(item.mrp)}${item.discount_pct ? " · " + item.discount_pct + "% off" : ""}</span></div>
         <div class="meta">${item.rating ? item.rating.toFixed(1) + " ★ (" + Number(item.rating_count || 0).toLocaleString("en-IN") + ")" : "No ratings yet"} · Delivery ${esc(item.delivery_date || "see listing")}</div>
         <div class="actions">
-          ${item.url ? `<a class="btn btn-ghost" href="${esc(item.url)}" target="_blank" rel="noopener">View on Amazon</a>` : ""}
-          <button class="btn buy-btn" type="button">I want to buy</button>
+          <a class="btn btn-ghost btn-small" href="${esc(amazonUrl(item))}" target="_blank" rel="noopener">View on Amazon</a>
+          ${inCart(item.asin)
+            ? '<button class="btn btn-small" type="button" disabled>In cart ✓</button>'
+            : `<button class="btn btn-small" type="button" data-add="${esc(item.asin)}">Add to cart</button>`}
         </div>
       </div>`).join("");
-    el("picks-actions").hidden = state.picks.length === 0;
     el("picks").hidden = state.picks.length === 0;
+    el("more-picks").parentElement.hidden = state.picks.length === 0;
   }
 
   async function fetchPicks() {
-    const category = el("category").value;
     const city = el("city").value;
     el("picks-note").hidden = true;
-    try {
-      const data = await api(`/api/recommendations/?category=${encodeURIComponent(category)}&city=${encodeURIComponent(city)}`);
-      state.picks = data.items || [];
-      state.pickCategory = category;
+    if (!city) {
+      state.picks = [];
       renderPicks();
-      const note = data.note || (!data.items.length && data.latest_observed_at ? `Latest data is from ${data.latest_observed_at}.` : "");
+      el("picks-note").hidden = false;
+      el("picks-note").textContent = "No delivery city is available right now.";
+      return;
+    }
+    try {
+      const data = await api(`/api/recommendations/?category=${encodeURIComponent(state.category)}&city=${encodeURIComponent(city)}`);
+      state.picks = data.items || [];
+      renderPicks();
+      const note = data.note || (!state.picks.length && data.latest_observed_at ? `Latest data is from ${data.latest_observed_at}.` : "");
       el("picks-note").hidden = !note;
       el("picks-note").textContent = note;
     } catch (err) {
@@ -164,148 +142,84 @@
     }
   }
 
-  el("show-picks").addEventListener("click", fetchPicks);
   el("more-picks").addEventListener("click", fetchPicks);
-
-  el("picks").addEventListener("click", async (event) => {
-    const button = event.target.closest(".buy-btn");
-    if (!button) return;
-    const asin = button.closest(".pick").dataset.asin;
-    await setInterest(asin, "buy");
-    button.textContent = "Saved ✓";
-    button.disabled = true;
+  el("city").addEventListener("change", () => {
+    if (state.category) showPicks();
   });
 
-  async function setInterest(asin, interest) {
-    try {
-      await api("/api/interest/", { method: "POST", body: { asin, interest } });
-    } catch (err) {
-      alert(err.message);
-    }
-  }
+  el("picks").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-add]");
+    if (!button) return;
+    addToCart(button.dataset.add);
+  });
 
-  // ------------------------------------------------------------ chat
+  // ------------------------------------------------------------ cart
 
-  el("chat-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const input = el("chat-input");
-    const text = input.value.trim();
-    if (!text) return;
-    markActive();
-    input.value = "";
-    state.picks = [];
+  function addToCart(asin) {
+    const item = state.picks.find((p) => p.asin === asin);
+    if (!item || inCart(asin)) return;
+    state.cart.push({ asin: item.asin, title: item.title, brand: item.brand, price: item.price, url: item.url });
+    saveCart();
+    renderCart();
     renderPicks();
-    el("picks-note").hidden = true;
-    showChat();
-    state.messages.push({ role: "user", content: text });
-    renderMessages();
-    try {
-      const data = state.pending
-        ? await api(`/api/chat/${encodeURIComponent(state.threadId)}/answer/`, { method: "POST", body: { answer: text } })
-        : await api("/api/chat/", { method: "POST", body: { message: text, thread_id: state.threadId, role: "customer", city: el("city").value } });
-      state.threadId = data.thread_id;
-      state.pending = data.question || null;
-      state.messages.push({ role: "assistant", content: data.question || data.reply || "" });
-    } catch (err) {
-      state.messages.push({ role: "assistant", content: "Sorry, I could not answer: " + err.message });
-    }
-    renderMessages();
-    loadThreads();
-  });
-
-  function markActive() {
-    state.lastActivity = Date.now();
-    hideNudge();
+    // Tell the recommender the shopper wants this product. Failure here does not affect the cart.
+    api("/api/interest/", { method: "POST", body: { asin, interest: "buy" } }).catch(() => {});
   }
 
-  // ------------------------------------------------------------ (i) panel
-
-  async function renderShown() {
-    const list = el("shown-list");
-    list.innerHTML = '<p class="fine">Loading…</p>';
-    try {
-      const data = await api("/api/shown/");
-      if (!data.shown.length) {
-        list.innerHTML = '<p class="fine">Nothing shown yet. Pick a category to see today\'s best.</p>';
-        return;
-      }
-      list.innerHTML = data.shown.map((item) => {
-        const status = item.interest === "buy" ? '<p class="fine">You want to buy this</p>'
-          : item.interest === "skip" ? '<p class="fine">Not for you</p>'
-          : `<div class="actions"><button class="btn" data-act="buy" data-asin="${esc(item.asin)}" type="button">I want to buy</button>
-             <button class="btn btn-ghost" data-act="skip" data-asin="${esc(item.asin)}" type="button">Not for me</button></div>`;
-        return `<div class="shown-item"><b>${esc((item.title || item.asin).slice(0, 80))}</b><br>${money(item.price)} · ${esc(item.city || "")}
-          ${item.url ? `<br><a href="${esc(item.url)}" target="_blank" rel="noopener">View on Amazon</a>` : ""}${status}</div>`;
-      }).join("");
-    } catch (err) {
-      list.innerHTML = `<p class="fine">${esc(err.message)}</p>`;
-    }
+  function removeFromCart(asin) {
+    state.cart = state.cart.filter((item) => item.asin !== asin);
+    saveCart();
+    renderCart();
+    renderPicks();
   }
 
-  el("shown-btn").addEventListener("click", () => {
-    el("shown-drawer").hidden = false;
-    renderShown();
-  });
-  el("close-drawer").addEventListener("click", () => { el("shown-drawer").hidden = true; });
-  el("shown-drawer").addEventListener("click", async (event) => {
-    if (event.target === el("shown-drawer")) { el("shown-drawer").hidden = true; return; }
-    const button = event.target.closest("[data-act]");
-    if (!button) return;
-    await setInterest(button.dataset.asin, button.dataset.act);
-    renderShown();
-  });
-
-  // ------------------------------------------------------------ idle nudge
-
-  function hideNudge() {
-    el("nudge").hidden = true;
+  function renderCart() {
+    el("cart-count").textContent = state.cart.length;
+    const total = state.cart.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+    el("cart-total").textContent = money(total);
+    el("cart-items").innerHTML = state.cart.length
+      ? state.cart.map((item) => `
+          <div class="cart-item">
+            <div class="title">${esc((item.title || item.asin).slice(0, 80))}</div>
+            <div class="meta">${money(item.price)}</div>
+            <div class="actions">
+              <a class="btn btn-ghost btn-small" href="${esc(amazonUrl(item))}" target="_blank" rel="noopener">Open on Amazon</a>
+              <button class="btn btn-ghost btn-small" type="button" data-remove="${esc(item.asin)}">Remove</button>
+            </div>
+          </div>`).join("")
+      : '<p class="fine">Your cart is empty. Add picks from the shop to see them here.</p>';
   }
 
-  function checkIdle() {
-    if (state.nudged || !state.picks.length) return;
-    if (Date.now() - state.lastActivity < IDLE_MS) return;
-    state.nudged = true;
-    state.nudgeItem = state.picks[0];
-    el("nudge-body").innerHTML = `<div>${esc((state.nudgeItem.title || "").slice(0, 70))}</div><b>${money(state.nudgeItem.price)}</b>`;
-    el("nudge").hidden = false;
-  }
-
-  ["click", "keydown", "mousemove", "scroll", "touchstart"].forEach((name) => {
-    document.addEventListener(name, () => {
-      state.lastActivity = Date.now();
-      state.nudged = false;
-    }, { passive: true });
+  el("cart-btn").addEventListener("click", () => { el("cart-drawer").hidden = false; });
+  el("close-cart").addEventListener("click", () => { el("cart-drawer").hidden = true; });
+  el("cart-drawer").addEventListener("click", (event) => {
+    if (event.target === el("cart-drawer")) { el("cart-drawer").hidden = true; return; }
+    const button = event.target.closest("[data-remove]");
+    if (button) removeFromCart(button.dataset.remove);
   });
-
-  el("nudge-buy").addEventListener("click", async () => {
-    if (state.nudgeItem) await setInterest(state.nudgeItem.asin, "buy");
-    hideNudge();
+  el("clear-cart").addEventListener("click", () => {
+    state.cart = [];
+    saveCart();
+    renderCart();
+    renderPicks();
   });
-  el("nudge-dismiss").addEventListener("click", hideNudge);
-
-  setInterval(checkIdle, CHECK_MS);
 
   // ------------------------------------------------------------ start
 
   async function init() {
-    let saved = "light";
-    try { saved = localStorage.getItem("rp-theme") || "light"; } catch (e) { /* ignore */ }
-    applyTheme(saved);
+    renderCart();
     try {
       const cities = (await api("/api/cities/")).cities.filter((c) => c.covered);
-      el("city").innerHTML = cities.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("");
-      if (!cities.length) el("city").innerHTML = '<option value="">No city has data today</option>';
+      el("city").innerHTML = cities.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")
+        || '<option value="">No city has data today</option>';
     } catch (err) {
       el("city").innerHTML = '<option value="">Unavailable</option>';
     }
     try {
-      const categories = (await api("/api/categories/")).categories;
-      el("category").innerHTML = categories.map((c) => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join("");
+      renderCategories((await api("/api/categories/")).categories);
     } catch (err) {
-      el("category").innerHTML = '<option value="">Unavailable</option>';
+      el("categories").innerHTML = `<p class="fine">${esc(err.message)}</p>`;
     }
-    loadThreads();
-    showHome();
   }
 
   init();

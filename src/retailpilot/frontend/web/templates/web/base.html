@@ -10,6 +10,10 @@
 <body class="{% block body_class %}{% endblock %}">
   {% block content %}{% endblock %}
   <footer class="site-footer">Made by Wi-Fight Club</footer>
+  {% if assistant %}
+    {% include "web/_assistant.html" %}
+    <script src="{% static 'web/js/assistant.js' %}"></script>
+  {% endif %}
   {% block scripts %}{% endblock %}
 </body>
 </html>

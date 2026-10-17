@@ -56,6 +56,8 @@ def observed_at(offer: dict):
 
 
 def margin_at(price: float, landed: float, gst_pct: float, fees_pct: float) -> dict:
+    if fees_pct >= 100:
+        raise ValueError("Marketplace fees must be below 100%.")
     net = price / (1 + gst_pct / 100)
     fees = net * fees_pct / 100
     contribution = net - landed - fees
@@ -150,6 +152,17 @@ def price_history(data: dict, asin: str, city: str, days: int) -> list[tuple[str
         if h.get("price") is not None:
             per_day[h["scraped_at"].date().isoformat()] = h["price"]
     return sorted(per_day.items())
+
+
+def category_overview(data: dict, city: str) -> list[dict]:
+    groups: dict[str, list[float]] = {}
+    for o in data["offers"]:
+        if o["city"] == city:
+            groups.setdefault(o["category"], []).append(o["price"])
+    return [
+        {"category": name, "products": len(prices), "avg_price": round(sum(prices) / len(prices))}
+        for name, prices in sorted(groups.items())
+    ]
 
 
 def gap_matrix(data: dict, category: str) -> tuple[list[str], list[str], list[list[float | None]]]:

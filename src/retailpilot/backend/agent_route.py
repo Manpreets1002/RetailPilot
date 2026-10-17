@@ -9,10 +9,17 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from retailpilot.agent.chatbot import ChatNotConfigured, RetailPilotChat, ThreadNotWaiting, ThreadWaiting
+from retailpilot.agent.chatbot import (
+    ChatNotConfigured,
+    RetailPilotChat,
+    ThreadNotWaiting,
+    ThreadWaiting,
+    ToolCallFailed,
+)
 
 state: dict[str, RetailPilotChat] = {}
 
@@ -45,6 +52,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="RetailPilot Chat Backend", lifespan=lifespan)
+
+
+@app.exception_handler(ToolCallFailed)
+async def tool_call_failed(_: Request, exc: ToolCallFailed) -> JSONResponse:
+    return JSONResponse(status_code=502, content={"detail": f"A data tool failed: {exc}"})
 
 
 @app.get("/health")
