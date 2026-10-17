@@ -10,6 +10,7 @@ import json
 import re
 import sys
 import tomllib
+from urllib.parse import urlparse
 
 import pytest
 import yaml
@@ -190,9 +191,17 @@ def _host_ports(compose_path) -> set[str]:
     return ports
 
 
-def test_mongo_host_ports_do_not_collide_between_compose_files():
-    shared = _host_ports(COMPOSE_FILES["root"]) & _host_ports(COMPOSE_FILES["crawler"])
-    assert shared == set(), f"Host ports used by both compose files: {sorted(shared)}"
+def test_root_compose_mongo_port_matches_env_mongo_uri():
+    env = {}
+    for line in (ROOT / ".env").read_text(encoding="utf-8").splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            key, value = line.split("=", 1)
+            env[key.strip()] = value.strip()
+    mongo_port = urlparse(env["MONGO_URI"]).port
+    assert str(mongo_port) in _host_ports(COMPOSE_FILES["root"]), (
+        f".env MONGO_URI uses port {mongo_port}, but the root compose file publishes "
+        f"{sorted(_host_ports(COMPOSE_FILES['root']))}"
+    )
 
 
 # ------------------------------------------------------------------ data files

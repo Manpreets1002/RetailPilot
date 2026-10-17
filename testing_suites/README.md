@@ -43,7 +43,9 @@ None at the moment. The four bugs that used to be marked as expected failures ar
 - `customer_best_today` with `observed_on="any"` now returns older offers.
 - Marketplace fees of 100% or more are rejected with a clear message, in the dashboard and the MCP tool.
 - A failed MCP tool call raises `ToolCallFailed`, which the backend returns as a 502 with a message.
-- The root compose file publishes MongoDB on host port 27019, so it can run alongside the crawler's MongoDB on 27018.
+- The root compose file publishes MongoDB on host port 27018, the same port as `.env` `MONGO_URI`. The test
+  `test_root_compose_mongo_port_matches_env_mongo_uri` checks that they match. The root and crawler compose
+  files both use 27018, so run only one of them at a time.
 
 ## Requirements
 
@@ -57,7 +59,4 @@ The tests read the per-service files at the project root: `requirement-mcp.txt`,
 
 ## Known failures
 
-`test_every_pyproject_dependency_is_in_requirements` fails. `pyproject.toml` lists 11 packages that none of
-the service files include: `alembic`, `google-adk`, `google-cloud-secret-manager`, `google-genai`, `pandas`,
-`psycopg[binary]`, `pytest`, `python-dotenv`, `ruff`, `sqlalchemy` and `streamlit`. Either add them to a
-service file or remove them from `pyproject.toml`.
+None at the moment. `test_every_pyproject_dependency_is_in_requirements` passes.
