@@ -39,16 +39,80 @@ services:
       - backend
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"   # 6380 on the host so it doesn't clash with another Redis on 6379
+    volumes:
+      - crawler_redis:/data
+    restart: unless-stopped
+
+  # One-shot CLI. Queue a run for the workers:
+  #   docker compose run --rm crawler crawler.py --enqueue --city mumbai delhi
+  # Or crawl directly in this container:
+  #   docker compose run --rm crawler crawler.py --city mumbai --pages 1 --products 5
   crawler:
     build:
       context: .
       target: crawler
+    image: retailpilot-crawler
     env_file: .env
     environment:
       MONGO_URI: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379/0
+    shm_size: 1gb   # Chromium needs more than Docker's 64 MB default
+    deploy: &crawler_limits
+      resources:
+        limits:
+          cpus: "2"
+          memory: 12G
     depends_on:
       - mongo
+      - redis
     profiles: ["tools"]
+
+  # Starts a crawl run on `up`: discovers categories and queues one job per (city, category)
+  # for CRAWL_CITIES (empty = every city in cities.json), then exits. Skips if the previous
+  # run is still queued or running, so restarting the stack doesn't queue a duplicate.
+  crawler-start:
+    image: retailpilot-crawler
+    build:
+      context: .
+      target: crawler
+    command: ["crawler.py", "--enqueue", "--if-idle"]
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379/0
+    shm_size: 1gb
+    deploy: *crawler_limits
+    depends_on:
+      - mongo
+      - redis
+    restart: on-failure:3   # e.g. Redis not ready yet on first boot
+    profiles: ["crawl"]
+
+  # Crawl workers: CRAWL_WORKERS worker processes in ONE container, so the 2 CPU / 12 GB
+  # limit covers all of them. Change the count in .env (CRAWL_WORKERS=6), not with --scale:
+  # each scaled copy would get its own 2 CPU / 12 GB.
+  crawler-worker:
+    image: retailpilot-crawler
+    build:
+      context: .
+      target: crawler
+    command: ["worker.py"]
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      REDIS_URL: redis://redis:6379/0
+    shm_size: 2gb   # shared by up to BROWSER_MAX_CONCURRENT Chromium instances
+    deploy: *crawler_limits
+    stop_grace_period: 2m   # let each worker finish its current page before stopping
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped
+    profiles: ["crawl"]
 
   mcp:
     build:
@@ -66,6 +130,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  crawler_redis:
   amazon_crawler_mongo:
     external: true
     name: amazon_ecomm_crawler_amazon_crawler_mongo

@@ -7,6 +7,10 @@ the same TLS fingerprint as a real Chrome browser.
 Amazon decides prices, stock, sellers and delivery dates from the delivery
 pincode stored in the session cookies. Each Fetcher is pinned to one city; if the
 session has to be reset after a block, the pincode is set again.
+
+When HTTP alone can't get a working session (bot check on every try, or the
+'Deliver to' API refuses the pincode), a real browser is opened to do it
+(see browser_session.py) and its cookies are loaded into the HTTP session.
 """
 
 import html as html_lib
@@ -17,16 +21,16 @@ import time
 import urllib.robotparser
 from urllib.parse import urljoin
 
-from config import Settings
 from curl_cffi import requests
+
+import browser_session
+from config import Settings
 
 log = logging.getLogger(__name__)
 
-CAPTCHA_MARKERS = (
-    "/errors/validateCaptcha",
-    "Enter the characters you see below",
-    "api-services-support@amazon.com",
-)
+CAPTCHA_MARKERS = browser_session.BOT_CHECK_MARKERS
+# After a failed browser attempt, wait this long before opening another one.
+BROWSER_COOLDOWN = 300
 
 GLOW_MODAL_TOKEN_RE = re.compile(r'"ajaxHeaders":\{"anti-csrftoken-a2z":"([^"]+)"\}, "name":"glow-modal"')
 ADDRESS_TOKEN_RE = re.compile(r'CSRF_TOKEN\s*:\s*"([^"]+)"')
@@ -51,8 +55,9 @@ class Fetcher:
         self.city = city
         self.robots = urllib.robotparser.RobotFileParser()
         self._last_request = 0.0
-        self.stats = {"requests": 0, "failures": 0, "blocked": 0, "location_resets": 0}
+        self.stats = {"requests": 0, "failures": 0, "blocked": 0, "location_resets": 0, "browser_sessions": 0}
         self.location: dict | None = None  # what Amazon confirmed, e.g. {"city": "MUMBAI", ...}
+        self._browser_failed_at = float("-inf")
         self._new_session()
 
     # ---------------------------------------------------------------- session
@@ -62,12 +67,60 @@ class Fetcher:
         self.session.headers.update({"Accept-Language": self.s.accept_language, **self.s.extra_headers})
 
     def warm_up(self) -> None:
-        """Load robots.txt and the home page so the session gets normal cookies, then set the city."""
+        """Load robots.txt and the home page so the session gets normal cookies, then set the city.
+
+        Tries plain HTTP twice, then falls back to a browser. Raises LocationError if all fail.
+        """
         robots_resp = self.session.get(urljoin(self.s.base_url, "/robots.txt"), timeout=self.s.timeout)
         self.robots.parse(robots_resp.text.splitlines())
-        self._prime_cookies()
+        if self.s.browser_fallback == "always":
+            self.browser_session()
+            return
+        error: Exception | None = None
+        for attempt in (1, 2):
+            try:
+                self._prime_cookies()
+                if self.city:
+                    self.set_location(self.city["pincode"])
+                return
+            except Exception as exc:  # noqa: BLE001 - LocationError or network errors
+                error = exc
+                log.warning("HTTP warm-up failed (attempt %d): %s", attempt, exc)
+                self._new_session()
+        if self.s.browser_fallback == "off":
+            raise LocationError(f"Could not set up a session: {error}") from error
+        self.browser_session()
+
+    def browser_session(self) -> None:
+        """Open a browser to pass the bot check and set the pincode, then reuse its cookies over HTTP."""
+        if time.monotonic() - self._browser_failed_at < BROWSER_COOLDOWN:
+            raise LocationError("Browser fallback failed recently; not retrying yet")
+        self.stats["browser_sessions"] += 1
+        pincode = self.city["pincode"] if self.city else None
+        try:
+            result = browser_session.bootstrap(self.s, pincode)
+        except browser_session.BrowserError as exc:
+            self._browser_failed_at = time.monotonic()
+            self.location = None
+            raise LocationError(str(exc)) from exc
+
+        self._new_session()
+        for c in result["cookies"]:
+            if "amazon." in c["domain"]:
+                self.session.cookies.set(c["name"], c["value"], domain=c["domain"], path=c.get("path", "/"))
+        self._last_request = time.monotonic()
         if self.city:
-            self.set_location(self.city["pincode"])
+            # The browser saw the right pincode; check the HTTP session sees it too.
+            self._wait()
+            html = self.session.get(f"{self.s.base_url}/s?k=electronics", timeout=self.s.timeout).text
+            loc = page_location(html)
+            if not loc or pincode not in loc:
+                self._browser_failed_at = time.monotonic()
+                self.location = None
+                raise LocationError(f"Browser cookies did not carry the location over (page shows '{loc}')")
+            self.location = {"pincode": pincode, "city": loc.replace(pincode, "").strip(), "state": None,
+                             "via": "browser"}
+            log.info("Delivery location set to %s via browser", loc)
 
     def _prime_cookies(self) -> None:
         # The home page normally answers 202; we only want its cookies.
@@ -126,17 +179,33 @@ class Fetcher:
         log.info("Delivery location set to %s, %s %s", self.location["city"], self.location["state"], pincode)
         return self.location
 
-    def _reset_session(self) -> None:
-        """Fresh cookies often clear a soft block; re-apply the city afterwards."""
-        self._new_session()
+    def _reset_session(self, prefer_browser: bool = False) -> None:
+        """Fresh cookies often clear a soft block; re-apply the city afterwards.
+
+        With prefer_browser (repeated blocks) or when HTTP can't set the pincode,
+        a browser session is used instead.
+        """
         self.stats["location_resets"] += 1
+        use_browser = self.s.browser_fallback == "always" or (
+            self.s.browser_fallback == "auto" and prefer_browser
+            and time.monotonic() - self._browser_failed_at >= BROWSER_COOLDOWN
+        )
+        if not use_browser:
+            self._new_session()
+            try:
+                self._prime_cookies()
+                if self.city:
+                    self.set_location(self.city["pincode"])
+                return
+            except Exception as exc:  # noqa: BLE001 - retried below or on the next attempt
+                log.warning("Could not restore location after reset: %s", exc)
+                self.location = None
+                if self.s.browser_fallback == "off":
+                    return
         try:
-            self._prime_cookies()
-            if self.city:
-                self.set_location(self.city["pincode"])
-        except Exception as exc:  # noqa: BLE001 - retried on the next attempt
-            log.warning("Could not restore location after reset: %s", exc)
-            self.location = None
+            self.browser_session()
+        except LocationError as exc:
+            log.warning("Browser fallback failed: %s", exc)
 
     # ---------------------------------------------------------------- fetching
 
@@ -167,7 +236,7 @@ class Fetcher:
 
         for attempt in range(1, self.s.max_retries + 1):
             if self.city and self.location is None:
-                self._reset_session()
+                self._reset_session(prefer_browser=attempt >= 2)
             self._wait()
             self.stats["requests"] += 1
             try:
@@ -186,13 +255,14 @@ class Fetcher:
                     return resp.text
                 log.warning("Page %s is for '%s', not %s; resetting location",
                             url, page_location(resp.text), self.city["pincode"])
-                self._reset_session()
+                self._reset_session(prefer_browser=attempt >= 2)
                 continue
 
             self.stats["blocked"] += 1
             log.warning("Blocked or error on %s: HTTP %s (attempt %d)", url, resp.status_code, attempt)
             self._backoff(attempt)
-            self._reset_session()
+            # A second block in a row means fresh HTTP cookies aren't enough; use the browser.
+            self._reset_session(prefer_browser=attempt >= 2)
 
         self.stats["failures"] += 1
         log.error("Giving up on %s after %d attempts", url, self.s.max_retries)

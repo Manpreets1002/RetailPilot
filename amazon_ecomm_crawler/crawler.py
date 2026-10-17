@@ -15,6 +15,8 @@ Usage:
   python crawler.py --city mumbai                           # one city (slug, name or pincode)
   python crawler.py --city delhi bengaluru 600001 --categories 1389401031 --pages 3 --products 30
   python crawler.py --city mumbai --no-details              # listing data only (fast)
+  python crawler.py --enqueue --city mumbai delhi           # queue jobs for worker.py instead of crawling here
+  python crawler.py --enqueue --if-idle                     # same, but skip if a run is still queued/running
 """
 
 import argparse
@@ -45,6 +47,11 @@ def search_url(node: str, page: int) -> str:
     rh = quote(f"n:{node}", safe="")
     # fs=true forces the product grid; without it page 1 is a browse storefront.
     return f"/s?i={settings.search_index}&rh={rh}&fs=true&page={page}"
+
+
+def new_stats() -> dict:
+    return {"listings": 0, "new_products": 0, "details": 0, "detail_failures": 0, "reviews": 0,
+            "cities_done": [], "cities_failed": []}
 
 
 def crawl_category(fetcher: Fetcher, store: Store, city: dict, cat: dict, args, run_id, stats: dict) -> None:
@@ -127,8 +134,8 @@ def crawl_city(city: dict, cats: list[dict], store: Store, args, run_id, stats: 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Crawl Amazon Electronics into MongoDB, city by city")
-    ap.add_argument("--city", nargs="*", metavar="CITY",
-                    help="cities to crawl, by slug/name/pincode from cities.json (default: all)")
+    ap.add_argument("--city", nargs="*", metavar="CITY", default=settings.crawl_cities.replace(",", " ").split(),
+                    help="cities to crawl, by slug/name/pincode from cities.json (default: CRAWL_CITIES, else all)")
     ap.add_argument("--list-cities", action="store_true", help="print the cities in cities.json and exit")
     ap.add_argument("--list-categories", action="store_true", help="print subcategories and exit")
     ap.add_argument("--categories", nargs="*", help="browse node IDs to crawl (default: all discovered)")
@@ -136,6 +143,10 @@ def main() -> int:
     ap.add_argument("--products", type=int, default=settings.max_products_per_category, help="max products per category, 0 = all")
     ap.add_argument("--no-details", action="store_true", help="skip product detail pages")
     ap.add_argument("--refresh-hours", type=float, default=24, help="re-scrape details older than this; 0 = always")
+    ap.add_argument("--enqueue", action="store_true",
+                    help="put one job per (city, category) on the Redis queue for worker.py instead of crawling here")
+    ap.add_argument("--if-idle", action="store_true",
+                    help="with --enqueue: do nothing if the queue still has jobs waiting or running")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -152,10 +163,21 @@ def main() -> int:
         return 0
     cities = select_cities(args.city, all_cities)
 
+    if args.enqueue and args.if_idle:
+        from jobs import pending_jobs
+
+        if n := pending_jobs():
+            log.info("Queue still has %d jobs from an earlier run; not queuing a new one", n)
+            return 0
+
     # Subcategories are the same in every city, so discover them once without a location.
     discovery = Fetcher(settings)
-    discovery.warm_up()
-    cats = discover_categories(discovery)
+    try:
+        discovery.warm_up()
+        cats = discover_categories(discovery)
+    except LocationError as exc:
+        log.warning("Category discovery failed (%s); using the root Electronics node", exc)
+        cats = [{"name": "Electronics", "node": settings.root_node}]
 
     if args.list_categories:
         for c in cats:
@@ -169,8 +191,17 @@ def main() -> int:
     store = Store(settings.mongo_uri, settings.mongo_db)
     params = vars(args) | {"cities": [c["slug"] for c in cities], "categories": [c["node"] for c in cats]}
     run_id = store.start_run(params)
-    stats = {"listings": 0, "new_products": 0, "details": 0, "detail_failures": 0, "reviews": 0,
-             "cities_done": [], "cities_failed": []}
+
+    if args.enqueue:
+        from jobs import enqueue_run  # needs redis/rq, only imported for queued runs
+
+        opts = {k: getattr(args, k) for k in ("pages", "products", "no_details", "refresh_hours")}
+        n = enqueue_run(cities, cats, opts, run_id)
+        log.info("Run %s: queued %d jobs (%d cities x %d categories) on '%s'; start worker.py to process them",
+                 run_id, n, len(cities), len(cats), settings.crawl_queue)
+        return 0
+
+    stats = new_stats()
     log.info("Run %s: %d cities x %d categories", run_id, len(cities), len(cats))
     status = "completed"
     try:

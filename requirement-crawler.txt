@@ -4,3 +4,6 @@ lxml>=6
 pymongo>=4.19
 pydantic>=2.14
 pydantic-settings>=2.16
+playwright>=1.50
+redis>=5
+rq>=2

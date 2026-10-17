@@ -4,3 +4,7 @@ lxml
 pymongo
 python-dotenv
 pytest
+pydantic-settings
+playwright
+redis
+rq

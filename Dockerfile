@@ -11,14 +11,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 
+# Also used for the queue workers: `python worker.py`. Includes headless Chromium for
+# the browser fallback (bot check / "Deliver to" pincode).
 FROM base AS crawler
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY requirement-crawler.txt ./
-RUN pip install -r requirement-crawler.txt
-COPY src/retailpilot/__init__.py src/retailpilot/config ./src/retailpilot/
+RUN pip install -r requirement-crawler.txt \
+    && playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
+COPY src/retailpilot/__init__.py ./src/retailpilot/
+COPY src/retailpilot/config ./src/retailpilot/config
 COPY amazon_ecomm_crawler ./amazon_ecomm_crawler
 WORKDIR /app/amazon_ecomm_crawler
-ENTRYPOINT ["python", "crawler.py"]
-CMD ["--help"]
+ENTRYPOINT ["python"]
+CMD ["crawler.py", "--help"]
 
 
 FROM base AS mcp

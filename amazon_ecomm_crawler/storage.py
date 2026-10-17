@@ -176,6 +176,19 @@ class Store:
             {"_id": run_id}, {"$set": {"finished_at": now(), "status": status, "stats": stats}}
         )
 
+    def add_run_stats(self, run_id, stats: dict, cities_ok: list[str] | None = None) -> None:
+        """Add one worker job's counters to the run (workers run in parallel, so this uses $inc)."""
+        update: dict = {"$set": {"updated_at": now()}}
+        inc = {f"stats.{k}": v for k, v in stats.items() if isinstance(v, int | float) and v}
+        if inc:
+            update["$inc"] = inc
+        if cities_ok:
+            update["$addToSet"] = {"stats.cities_ok": {"$each": cities_ok}}
+        self.db.crawl_runs.update_one({"_id": run_id}, update)
+
+    def get_run(self, run_id) -> dict | None:
+        return self.db.crawl_runs.find_one({"_id": run_id})
+
     # ---------------------------------------------------------------- reads
 
     def needs_detail(self, asins: list[str], city: str, max_age_hours: float) -> list[str]:

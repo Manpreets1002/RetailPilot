@@ -25,6 +25,108 @@ fingerprint as Chrome. It waits 2–5 s between requests at random. If Amazon sh
 a bot-check page, it backs off and starts a fresh session, then sets the city
 again. It skips any URL that robots.txt (`User-agent: *`) disallows.
 
+## Browser fallback
+
+Sometimes plain HTTP can't get a working session: Amazon serves its AWS WAF
+challenge or a bot-check page, or the "Deliver to" API won't set the pincode.
+Before this fallback, that city (often Mumbai) was skipped. Now the crawler:
+
+1. Tries the HTTP warm-up and pincode call twice.
+2. If both fail, opens Chromium with Playwright ([`browser_session.py`](browser_session.py)).
+   The browser solves the JS challenge, clicks "Continue shopping" on a bot check,
+   and sets the pincode through the real "Deliver to" popup, waiting for Amazon's
+   `address-change` reply.
+3. Loads the browser's cookies into the `curl_cffi` session, checks that HTTP pages
+   now show the right pincode, and carries on scraping over fast HTTP.
+
+The same thing happens mid-crawl: if a page is blocked twice in a row, the next
+session reset uses the browser instead of fresh HTTP cookies. If the browser fails,
+it isn't retried for 5 minutes.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `BROWSER_FALLBACK` | `auto` | `auto` = only when HTTP fails, `always` = every new session, `off` = never |
+| `BROWSER_HEADLESS` | `true` | `false` opens a visible window. If Amazon shows an image captcha, solve it there and the crawl continues |
+| `BROWSER_MANUAL_WAIT` | `180` | Seconds to wait for a manual captcha solve |
+| `BROWSER_EXECUTABLE` | (Playwright Chromium) | Use an installed browser instead, e.g. `/usr/bin/google-chrome` |
+
+Headless mode handles the challenge and button checks, but not image captchas. If
+one appears, the job fails and is retried later.
+
+## Workers (Redis + RQ)
+
+For parallel crawling, split a run into jobs and let workers process them:
+
+```bash
+python crawler.py --enqueue --city mumbai delhi chennai   # one job per (city, category)
+python worker.py --processes 4                           # 4 workers (default: CRAWL_WORKERS)
+python worker.py --burst                                 # or: exit when the queue is empty
+rq info -u redis://localhost:6380/0                      # queue / worker status
+```
+
+- Each job crawls one category for one city. Workers keep one session per city, so
+  each pincode is set once per worker, not once per job.
+- A failed job is retried twice (after 1 and 5 minutes). Workers run RQ's
+  scheduler for this, so use long-running workers, not `--burst`, if you want retries.
+- Every job adds its counters to the run's `crawl_runs` doc. A final job marks the
+  run `completed` or `partial` and fills `cities_done`/`cities_failed`.
+- At most `BROWSER_MAX_CONCURRENT` (default 2) Chromium instances run at once across
+  all workers. The rest wait for a free slot.
+- All workers share one IP, so more workers mean more bot checks (see sizing below).
+
+### Sizing
+
+Measured in the container:
+
+| | CPU | Memory |
+|---|---|---|
+| Worker crawling over HTTP | ~5% of a core on average (mostly sleeping between requests) | 60–100 MB |
+| Chromium during a fallback (~30 s) | 1–2.3 cores | ~600–700 MB |
+| 4 workers, 2 browsers at once (worst case) | capped at 2 cores | 1.3 GB peak |
+
+With the container's 2 CPU / 12 GB limit, the hardware could run about 30 workers.
+The real limit is Amazon: each worker makes ~17 requests/min, all from one IP.
+Use **4 workers** (the default), and at most 6–8. Past that, blocks rise until the
+browser fallback runs all the time. More throughput needs proxies, not more workers.
+
+`REDIS_URL` (default `redis://localhost:6380/0`), `CRAWL_QUEUE` (`crawl`) and
+`CRAWL_JOB_TIMEOUT` (seconds, default 3 h) configure the queue.
+
+## Docker
+
+The crawler image is the `crawler` target of the repo-root [`Dockerfile`](../Dockerfile),
+and it includes headless Chromium. Run these from the repo root (compose needs a
+`.env` there; copy `.env.example`):
+
+One command starts everything and begins crawling:
+
+```bash
+docker compose --profile crawl up -d --build
+```
+
+That starts `mongo`, `redis`, and `crawler-worker` (`CRAWL_WORKERS` workers). It also runs
+`crawler-start` once, which finds the 18 Electronics categories, queues one job per
+(city, category), and exits. By default that is all 10 cities in `cities.json`,
+so 180 jobs. With the default limits (2 pages, 20 products per category) and 4
+workers, that takes about 1–1.5 h. Set `CRAWL_CITIES=mumbai,delhi` in `.env` to crawl fewer.
+Running `up` again starts a new run only if the last one has finished.
+
+```bash
+docker compose logs -f crawler-start crawler-worker                     # watch progress
+docker compose start crawler-start                                      # start another run later
+docker compose run --rm crawler crawler.py --enqueue --city mumbai pune # queue a run for specific cities
+docker compose run --rm crawler crawler.py --city mumbai --pages 1      # or crawl directly, no queue
+docker compose run --rm crawler crawler.py --list-cities
+```
+
+Inside compose, `MONGO_URI` and `REDIS_URL` point at the `mongo` and `redis`
+services. From the host, Redis is on port 6380.
+
+The `crawler`, `crawler-start` and `crawler-worker` containers are limited to **2 CPUs and 12 GB RAM**
+each. All worker processes run in the single `crawler-worker` container, so the
+limit covers them together. Set the count with `CRAWL_WORKERS` in `.env`, not
+`--scale`, because each scaled copy would get its own 2 CPU / 12 GB.
+
 ## Cities config
 
 `cities.json` holds an array of cities. To add or remove one, edit the array; no
@@ -61,7 +163,8 @@ were added from the NCR to make ten. Set `CITIES_FILE` to use a different file.
 cd amazon_ecomm_crawler
 docker compose up -d                     # MongoDB on localhost:27018
 python -m venv ../.venv && ../.venv/bin/pip install -r requirements.txt
-cp .env.example .env                     # optional, defaults work
+../.venv/bin/playwright install chromium # for the browser fallback
+cp ../.env.example ../.env               # optional, defaults work
 
 ../.venv/bin/python crawler.py --list-cities
 ../.venv/bin/python crawler.py --list-categories
@@ -81,8 +184,10 @@ cp .env.example .env                     # optional, defaults work
 | `--products N` | Max products per category (`0` = all) |
 | `--no-details` | Listing data only, skips product pages (much faster) |
 | `--refresh-hours H` | Skip product pages already scraped for that city within H hours (`0` = always fetch) |
+| `--enqueue` | Queue one job per (city, category) for `worker.py` instead of crawling here |
 
-Each city is a full pass, so crawl time grows with the number of cities.
+Each city is a full pass, so crawl time grows with the number of cities. To run
+cities in parallel, use `--enqueue` and workers (see below).
 
 ## Data model (`amazon_ecomm` database)
 
@@ -150,12 +255,13 @@ db.price_history.find({asin: "B0CCZ26B5V", city: "delhi"}).sort({scraped_at: -1}
   cities, while delivery date, stock and sometimes the seller changed. The schema
   stores all of them per city either way.
 - **Bot checks:** Amazon often shows a "Continue shopping" bot-check page on product
-  pages. The crawler backs off and retries with a fresh session, so each check costs
-  about 15–20 s. Raising `CRAWL_MIN_DELAY`/`CRAWL_MAX_DELAY` reduces them.
+  pages. The crawler backs off and retries with a fresh session, then falls back to the
+  browser, so each check costs about 15–40 s. Raising `CRAWL_MIN_DELAY`/`CRAWL_MAX_DELAY`
+  reduces them.
 - **Reviews:** only the ~8–10 reviews shown on the product page. Amazon's full
   review pages (`/product-reviews/`) need a signed-in session.
 - **Volume:** a full crawl is 10 cities × 18 categories × up to ~400 pages. For
-  production you would add a job queue, run cities in parallel, and schedule
+  production you would add proxies so workers don't share one IP, and schedule
   incremental price re-crawls. The official
   [Product Advertising API](https://webservices.amazon.in/paapi5/documentation/)
   is the approved way to get this data.
@@ -170,8 +276,11 @@ db.price_history.find({asin: "B0CCZ26B5V", city: "delhi"}).sort({scraped_at: -1}
 |---|---|
 | `cities.json` | The 10 cities and pincodes to crawl |
 | `crawler.py` | CLI and city → category → product crawl loop |
-| `http_client.py` | Chrome-fingerprint session, pincode/location setting, delays, retries, bot-check detection, robots.txt |
+| `http_client.py` | Chrome-fingerprint session, pincode/location setting, delays, retries, bot-check detection, robots.txt, browser fallback trigger |
+| `browser_session.py` | Playwright browser: passes the bot check, sets the pincode, returns cookies for HTTP |
+| `jobs.py` | Queue jobs: one per (city, category), plus the closing job for the run |
+| `worker.py` | RQ worker that runs the queued jobs |
 | `parsers.py` | Search page, product page (incl. delivery), department parsers; city/common field split |
 | `storage.py` | MongoDB upserts, indexes, city offers, price history, run tracking |
-| `config.py` | Settings from env / `.env`, city loading and selection |
-| `docker-compose.yml` | Local MongoDB 7 on port 27018 |
+| `config.py` | City loading and selection; settings come from `retailpilot.config` (env / root `.env`) |
+| `docker-compose.yml` | Local MongoDB 7 on port 27018 (the full stack with Redis and workers is the repo-root compose) |
