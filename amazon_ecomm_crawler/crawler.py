@@ -54,43 +54,55 @@ def new_stats() -> dict:
             "cities_done": [], "cities_failed": []}
 
 
-def crawl_category(fetcher: Fetcher, store: Store, city: dict, cat: dict, args, run_id, stats: dict) -> None:
-    log.info("=== [%s] Category %s (%s)", city["slug"], cat["name"], cat["node"])
-    store.upsert_category(cat["node"], cat["name"], settings.root_node)
+def crawl_listing_pages(fetcher: Fetcher, store: Store, city: dict, cat: dict, args, run_id, stats: dict,
+                        first_page: int = 1, last_page: int = 0, already_seen: int = 0) -> tuple[list[str], bool]:
+    """Save search pages first_page..last_page (0 = until the end) for one city and category.
 
+    Returns (ASINs saved, whether the category has more pages after the last one fetched).
+    `already_seen` counts products saved by earlier chunks, for the --products limit.
+    """
     seen: list[str] = []
-    page = 1
+    page = first_page
     while True:
         if args.pages and page > args.pages:
-            break
+            return seen, False
+        if last_page and page > last_page:
+            return seen, True
         html = fetcher.get(search_url(cat["node"], page))
         if not html:
-            break
+            return seen, False
         result = parse_search_page(html)
         items = [p for p in result["products"] if p["asin"] not in seen]
         if not items:
             log.info("No products on page %d, stopping category", page)
-            break
+            return seen, False
 
         if args.products:
-            items = items[: max(0, args.products - len(seen))]
+            items = items[: max(0, args.products - already_seen - len(seen))]
         new = store.upsert_listings(items, cat, city, run_id)
         seen.extend(p["asin"] for p in items)
         stats["listings"] += len(items)
         stats["new_products"] += new
-        log.info("[%s] Page %d/%s: %d products (%d new)", city["slug"], page, result["total_pages"] or "?", len(items), new)
+        log.info("[%s] %s page %d/%s: %d products (%d new)", city["slug"], cat["name"], page,
+                 result["total_pages"] or "?", len(items), new)
 
-        if args.products and len(seen) >= args.products:
-            break
+        if args.products and already_seen + len(seen) >= args.products:
+            return seen, False
         if not result["next_page"]:
-            break
+            return seen, False
         page += 1
 
-    if args.no_details:
-        return
 
-    todo = store.needs_detail(seen, city["slug"], args.refresh_hours)
-    log.info("[%s] Fetching %d product pages (%d skipped as fresh)", city["slug"], len(todo), len(seen) - len(todo))
+def detail_todo(store: Store, asins: list[str], city: dict, args) -> list[str]:
+    """Which product pages to fetch: per city, or once per product (see CRAWL_DETAIL_MODE)."""
+    if settings.crawl_detail_mode == "once":
+        return store.needs_detail_any(asins, args.refresh_hours)
+    return store.needs_detail(asins, city["slug"], args.refresh_hours)
+
+
+def crawl_details(fetcher: Fetcher, store: Store, city: dict, asins: list[str], args, run_id, stats: dict) -> None:
+    todo = detail_todo(store, asins, city, args)
+    log.info("[%s] Fetching %d product pages (%d skipped as fresh)", city["slug"], len(todo), len(asins) - len(todo))
     for i, asin in enumerate(todo, 1):
         html = fetcher.get(f"/dp/{asin}")
         if not html:
@@ -111,6 +123,14 @@ def crawl_category(fetcher: Fetcher, store: Store, city: dict, cat: dict, args, 
             detail.get("price"), detail.get("mrp"), detail.get("discount_pct"),
             detail.get("rating"), detail.get("rating_count"), detail.get("delivery_date") or detail.get("delivery"),
         )
+
+
+def crawl_category(fetcher: Fetcher, store: Store, city: dict, cat: dict, args, run_id, stats: dict) -> None:
+    log.info("=== [%s] Category %s (%s)", city["slug"], cat["name"], cat["node"])
+    store.upsert_category(cat["node"], cat["name"], settings.root_node)
+    seen, _ = crawl_listing_pages(fetcher, store, city, cat, args, run_id, stats)
+    if not args.no_details:
+        crawl_details(fetcher, store, city, seen, args, run_id, stats)
 
 
 def crawl_city(city: dict, cats: list[dict], store: Store, args, run_id, stats: dict) -> None:
@@ -142,7 +162,8 @@ def main() -> int:
     ap.add_argument("--pages", type=int, default=settings.max_pages_per_category, help="max pages per category, 0 = all")
     ap.add_argument("--products", type=int, default=settings.max_products_per_category, help="max products per category, 0 = all")
     ap.add_argument("--no-details", action="store_true", help="skip product detail pages")
-    ap.add_argument("--refresh-hours", type=float, default=24, help="re-scrape details older than this; 0 = always")
+    ap.add_argument("--refresh-hours", type=float, default=settings.crawl_refresh_hours,
+                    help="re-scrape details older than this (default: CRAWL_REFRESH_HOURS); 0 = always")
     ap.add_argument("--enqueue", action="store_true",
                     help="put one job per (city, category) on the Redis queue for worker.py instead of crawling here")
     ap.add_argument("--if-idle", action="store_true",

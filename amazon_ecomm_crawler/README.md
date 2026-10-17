@@ -58,18 +58,29 @@ one appears, the job fails and is retried later.
 For parallel crawling, split a run into jobs and let workers process them:
 
 ```bash
-python crawler.py --enqueue --city mumbai delhi chennai   # one job per (city, category)
+python crawler.py --enqueue --city mumbai delhi chennai   # start a run for these cities
 python worker.py --processes 4                           # 4 workers (default: CRAWL_WORKERS)
 python worker.py --burst                                 # or: exit when the queue is empty
 rq info -u redis://localhost:6380/0                      # queue / worker status
 ```
 
-- Each job crawls one category for one city. Workers keep one session per city, so
-  each pincode is set once per worker, not once per job.
+- Jobs are small, so a full crawl never hits the job timeout:
+  - **listing job:** `CRAWL_PAGES_PER_JOB` (10) search pages of one category in one city.
+    It queues detail jobs for the products it found, then queues the next 10 pages,
+    until the category runs out.
+  - **detail job:** `CRAWL_DETAILS_PER_JOB` (20) product pages. These go to the front
+    of the queue, so products are filled in soon after they're listed.
+- `CRAWL_DETAIL_MODE=once` (default) fetches each product page one time. Every city
+  still gets its own price, MRP, stock, Prime and delivery text from that city's
+  search results in `city_offers`. `per_city` fetches every product page in every
+  city as well, which gives the exact delivery date and seller per city but takes
+  about 10× the requests.
+- Workers keep one session per city, so each pincode is set once per worker, not once per job.
 - A failed job is retried twice (after 1 and 5 minutes). Workers run RQ's
   scheduler for this, so use long-running workers, not `--burst`, if you want retries.
-- Every job adds its counters to the run's `crawl_runs` doc. A final job marks the
-  run `completed` or `partial` and fills `cities_done`/`cities_failed`.
+- Every job adds its counters to the run's `crawl_runs` doc, which also holds
+  `pending_jobs`. The job that brings that count to 0 marks the run `completed` or
+  `partial` and fills `cities_done`/`cities_failed`.
 - At most `BROWSER_MAX_CONCURRENT` (default 2) Chromium instances run at once across
   all workers. The rest wait for a free slot.
 - All workers share one IP, so more workers mean more bot checks (see sizing below).
@@ -105,10 +116,22 @@ docker compose --profile crawl up -d --build
 ```
 
 That starts `mongo`, `redis`, and `crawler-worker` (`CRAWL_WORKERS` workers). It also runs
-`crawler-start` once, which finds the 18 Electronics categories, queues one job per
-(city, category), and exits. By default that is all 10 cities in `cities.json`,
-so 180 jobs. With the default limits (2 pages, 20 products per category) and 4
-workers, that takes about 1–1.5 h. Set `CRAWL_CITIES=mumbai,delhi` in `.env` to crawl fewer.
+`crawler-start` once. It finds the 18 Electronics categories, queues the first
+listing job for every (city, category), and exits. By default that is all 10 cities
+in `cities.json`. Set `CRAWL_CITIES=mumbai,delhi` in `.env` to crawl fewer.
+
+How long a run takes depends on the limits in `.env`:
+
+| Setting | Requests (about) | Time with 4 workers |
+|---|---|---|
+| `CRAWL_MAX_PAGES=2`, `CRAWL_MAX_PRODUCTS=20` (small test) | 4,000 | 1–1.5 h |
+| Everything (`0`/`0`/`0`), `CRAWL_DETAIL_MODE=once` | 72k listing + ~240k product pages | **3–4 days** |
+| Everything, `CRAWL_DETAIL_MODE=per_city` | 72k + ~2.4M | about a month |
+
+A full crawl is about 18 categories × up to 400 pages × 33 products per city.
+Overlap between categories makes the real number of products lower. Plan for
+10–20 GB of Mongo disk. If the stack restarts mid-run, product pages fetched within
+`CRAWL_REFRESH_HOURS` are skipped, so a restart doesn't start from zero.
 Running `up` again starts a new run only if the last one has finished.
 
 ```bash
@@ -258,11 +281,13 @@ db.price_history.find({asin: "B0CCZ26B5V", city: "delhi"}).sort({scraped_at: -1}
   pages. The crawler backs off and retries with a fresh session, then falls back to the
   browser, so each check costs about 15–40 s. Raising `CRAWL_MIN_DELAY`/`CRAWL_MAX_DELAY`
   reduces them.
-- **Reviews:** only the ~8–10 reviews shown on the product page. Amazon's full
-  review pages (`/product-reviews/`) need a signed-in session.
-- **Volume:** a full crawl is 10 cities × 18 categories × up to ~400 pages. For
-  production you would add proxies so workers don't share one IP, and schedule
-  incremental price re-crawls. The official
+- **Reviews:** every review shown on the product page (usually 8–13, with
+  `CRAWL_MAX_REVIEWS=0`), plus the rating histogram. Amazon's full review pages
+  (`/product-reviews/`) redirect to sign-in. Scraping them would need a logged-in
+  account, which breaks Amazon's terms and gets accounts banned, so the crawler
+  doesn't do it.
+- **Volume:** a full crawl takes days from one IP (see the table above). To go
+  faster you need proxies so workers don't share one IP, not more workers. The official
   [Product Advertising API](https://webservices.amazon.in/paapi5/documentation/)
   is the approved way to get this data.
 - **Markup drift:** Amazon changes its HTML often. Every field is optional, and the

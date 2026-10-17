@@ -372,7 +372,7 @@ def parse_reviews(soup: BeautifulSoup, limit: int) -> list[dict]:
                 "image_count": len(r.select("[data-hook=review-image-tile]")),
             }
         )
-        if len(reviews) >= limit:
+        if limit and len(reviews) >= limit:  # 0 = every review on the page
             break
     return reviews
 

@@ -15,7 +15,7 @@ Collections:
 from datetime import UTC, datetime
 
 from parsers import split_city_fields
-from pymongo import ASCENDING, DESCENDING, MongoClient, UpdateOne
+from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument, UpdateOne
 
 # Search-card fields that are the same everywhere; the rest go to city_offers.
 LISTING_COMMON = ("title", "title_differentiators", "image", "url", "rating", "rating_count")
@@ -190,6 +190,28 @@ class Store:
         return self.db.crawl_runs.find_one({"_id": run_id})
 
     # ---------------------------------------------------------------- reads
+
+    def needs_detail_any(self, asins: list[str], max_age_hours: float) -> list[str]:
+        """ASINs whose product page was never scraped in any city, or is older than max_age_hours."""
+        if max_age_hours <= 0:
+            return asins
+        cutoff = now().timestamp() - max_age_hours * 3600
+        fresh = {
+            d["asin"]
+            for d in self.db.products.find(
+                {"asin": {"$in": asins}, "detail_scraped_at": {"$ne": None}}, {"asin": 1, "detail_scraped_at": 1}
+            )
+            if d["detail_scraped_at"].timestamp() >= cutoff
+        }
+        return [a for a in asins if a not in fresh]
+
+    def run_pending(self, run_id, delta: int) -> int:
+        """Change the run's count of unfinished jobs and return the new count."""
+        doc = self.db.crawl_runs.find_one_and_update(
+            {"_id": run_id}, {"$inc": {"pending_jobs": delta}}, projection={"pending_jobs": 1},
+            return_document=ReturnDocument.AFTER,
+        )
+        return doc["pending_jobs"] if doc else 0
 
     def needs_detail(self, asins: list[str], city: str, max_age_hours: float) -> list[str]:
         """ASINs whose product page was never scraped for this city, or is older than max_age_hours."""

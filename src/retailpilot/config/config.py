@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     crawl_workers: int = Field(4, validation_alias="CRAWL_WORKERS")  # worker processes per worker.py
     # Cities to crawl when --city isn't given: slugs/names/pincodes, space or comma separated. Empty = all.
     crawl_cities: str = Field("", validation_alias="CRAWL_CITIES")
+    # once = fetch each product page one time (specs, reviews), city prices/delivery come from each
+    # city's search results; per_city = fetch every product page again in every city (10x requests).
+    crawl_detail_mode: str = Field("once", validation_alias="CRAWL_DETAIL_MODE")
+    crawl_pages_per_job: int = Field(10, validation_alias="CRAWL_PAGES_PER_JOB")
+    crawl_details_per_job: int = Field(20, validation_alias="CRAWL_DETAILS_PER_JOB")
+    crawl_refresh_hours: float = Field(24, validation_alias="CRAWL_REFRESH_HOURS")
     crawl_job_timeout: int = Field(3 * 3600, validation_alias="CRAWL_JOB_TIMEOUT")
 
     @property
