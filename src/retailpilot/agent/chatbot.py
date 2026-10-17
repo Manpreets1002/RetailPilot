@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -222,7 +222,12 @@ class RetailPilotChat:
         await self.history.ensure_indexes()
         self.mongo = MongoClient(self.mongo_uri, serverSelectionTimeoutMS=5000)
         if settings.google_api_key:
-            self.llm = ChatGoogleGenerativeAI(model=self.model, api_key=settings.google_api_key, temperature=0)
+            self.llm = ChatGoogleGenerativeAI(
+                model=self.model,
+                api_key=settings.google_api_key,
+                vertexai=settings.gemini_vertexai,
+                temperature=0,
+            )
             self.graph = build_graph(self.llm, self.toolkit.tools, MongoDBSaver(self.mongo, db_name=settings.chat_db))
         return self
 
@@ -295,6 +300,68 @@ class RetailPilotChat:
         config = self._config(thread_id)
         output = await self.graph.ainvoke(Command(resume=text), config)
         return (await self._finish(thread_id, output, config)) | {"title": None}
+
+    async def start_send(self, thread_id: str, text: str, role: str | None = None):
+        self._require_graph()
+        if await self.history.get_pending(thread_id):
+            raise ThreadWaiting(thread_id)
+        if role is not None and role not in ROLES:
+            raise ValueError(f"role must be one of {ROLES}")
+        now = datetime.now(IST)
+        title = None
+        if not await self.history.thread_exists(thread_id):
+            title = await self._title(text)
+            await self.history.create_thread(thread_id, title, CHANNEL)
+        await self.history.add_message(thread_id, "user", text, kind="message", role=role)
+        graph_input = {
+            "messages": [HumanMessage(content=text)],
+            "timestamp": now.isoformat(),
+            "thread_id": thread_id,
+            "channel": CHANNEL,
+            "role": role or "customer",
+            "date": now.date().isoformat(),
+            "day": now.strftime("%A"),
+            "review_attempts": 0,
+        }
+        return self._stream(thread_id, graph_input, self._config(thread_id, role), title)
+
+    async def start_answer(self, thread_id: str, text: str):
+        self._require_graph()
+        if not await self.history.get_pending(thread_id):
+            raise ThreadNotWaiting(thread_id)
+        await self.history.add_message(thread_id, "user", text, kind="answer", role=None)
+        return self._stream(thread_id, Command(resume=text), self._config(thread_id), None)
+
+    async def _stream(self, thread_id: str, graph_input: Any, config: RunnableConfig, title: str | None):
+        yield {"type": "start", "thread_id": thread_id, "title": title}
+        draft = ""
+        question = None
+        async for mode, data in self.graph.astream(graph_input, config, stream_mode=["messages", "updates"]):
+            if mode == "messages":
+                chunk, meta = data
+                if meta.get("langgraph_node") == "agent" and isinstance(chunk, AIMessageChunk) and not chunk.tool_call_chunks:
+                    piece = _text(chunk)
+                    if piece:
+                        draft += piece
+                        yield {"type": "token", "text": piece}
+                continue
+            if "__interrupt__" in data:
+                question = data["__interrupt__"][0].value["question"]
+            elif "tools" in data:
+                draft = ""
+                yield {"type": "reset"}
+            elif "review" in data and "messages" in (data["review"] or {}):
+                draft = ""
+                yield {"type": "reset"}
+        role = (await self.graph.aget_state(config)).values.get("role")
+        if question:
+            await self.history.set_pending(thread_id, question)
+            await self.history.add_message(thread_id, "assistant", question, kind="question", role=role)
+            yield {"type": "question", "question": question, "role": role, "thread_id": thread_id}
+            return
+        await self.history.set_pending(thread_id, None)
+        await self.history.add_message(thread_id, "assistant", draft, kind="answer", role=role)
+        yield {"type": "done", "reply": draft, "role": role, "thread_id": thread_id}
 
     async def call_tool(self, name: str, args: dict[str, Any]) -> Any:
         raw = await self.toolkit.call(name, args)

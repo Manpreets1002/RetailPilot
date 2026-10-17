@@ -33,3 +33,14 @@ def get(path: str, **params: Any) -> Any:
 
 def post(path: str, body: dict[str, Any]) -> Any:
     return _request("POST", path, json=body)
+
+
+def open_stream(path: str, body: dict[str, Any]) -> tuple[httpx.Client, httpx.Response]:
+    """Open a streamed POST to the backend. The caller closes both the response and the client."""
+    client = httpx.Client(base_url=settings.RETAILPILOT_BACKEND_URL, timeout=TIMEOUT)
+    try:
+        response = client.send(client.build_request("POST", path, json=body), stream=True)
+    except httpx.HTTPError as exc:
+        client.close()
+        raise BackendError(f"Cannot reach the RetailPilot backend at {settings.RETAILPILOT_BACKEND_URL}.") from exc
+    return client, response

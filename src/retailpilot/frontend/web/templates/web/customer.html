@@ -13,9 +13,10 @@
     <label class="city-pick">Deliver to
       <select id="city"><option value="">Loading…</option></select>
     </label>
-    <button class="cart-btn" id="cart-btn" type="button" aria-label="Open cart">
-      Cart <span class="badge" id="cart-count">0</span>
+    <button class="cart-btn" id="cart-btn" type="button" aria-label="Open compare">
+      Compare <span class="badge" id="compare-count">0</span>
     </button>
+    {% include "web/_assistant.html" %}
   </div>
 </nav>
 
@@ -34,6 +35,12 @@
   </section>
 
   <section id="step-categories" class="shop-stage">
+    <form class="shop-search" id="shop-search" role="search">
+      <label class="sr-only" for="shop-search-input">What do you want to buy today?</label>
+      <input id="shop-search-input" type="search" maxlength="80" autocomplete="off" placeholder="What do you want to buy today? e.g. headphones, charger, camera">
+      <button class="btn" type="submit">Search</button>
+    </form>
+    <div class="shop-search-result" id="shop-search-result" aria-live="polite" hidden></div>
     <div class="section-heading shop-section-heading">
       <div><span class="eyebrow">STEP 01 · CHOOSE AN AISLE</span><h2>What are you shopping today?</h2></div>
       <p class="fine">Recommendations are based on listings available for the delivery city you choose.</p>
@@ -48,7 +55,7 @@
       <button class="btn btn-ghost" id="back-cats" type="button">← All categories</button>
       <div><span class="eyebrow">STEP 02 · YOUR SHORTLIST</span><h1 id="pick-title"></h1></div>
     </div>
-    <p class="fine picks-intro">Value picks for <span id="pick-city"></span>. Compare the details, save a pick to your cart, or open the listing on Amazon.in.</p>
+    <p class="fine picks-intro">Value picks for <span id="pick-city"></span>. Add picks to compare them side by side, ask RetailPilot about any pick, or open the listing on Amazon.in.</p>
     <p id="picks-note" class="note" hidden></p>
     <div id="picks" class="picks"></div>
     <div class="picks-actions">
@@ -60,18 +67,14 @@
 <aside class="cart-drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-title" hidden>
   <div class="cart-card">
     <div class="drawer-head">
-      <div><span class="eyebrow">YOUR SHOPPING LIST</span><h3 id="cart-title">Your cart</h3></div>
-      <button class="btn btn-ghost btn-small" id="close-cart" type="button" aria-label="Close cart">Close</button>
+      <div><span class="eyebrow">COMPARE</span><h3 id="cart-title">Compare products</h3></div>
+      <button class="btn btn-ghost btn-small" id="close-cart" type="button" aria-label="Close compare">Close</button>
     </div>
-    <div id="cart-items"></div>
-    <div class="cart-foot">
-      <div class="cart-total"><span>Estimated total</span><b id="cart-total">₹0</b></div>
-      <p class="fine">Estimate based on the last observed prices. Complete each purchase on Amazon.in.</p>
-      <button class="btn btn-ghost btn-block" id="clear-cart" type="button">Clear cart</button>
-    </div>
+    <div id="compare-body"></div>
   </div>
 </aside>
 {% endblock %}
 {% block scripts %}
+<script src="{% static 'web/js/assistant.js' %}"></script>
 <script src="{% static 'web/js/customer.js' %}"></script>
 {% endblock %}

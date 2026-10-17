@@ -5,6 +5,7 @@ Run: python src/retailpilot/mcp/mcp_server.py   (stdio transport)
 Tools default to offers observed today (IST). Pass observed_on to ask for an older day, or "any".
 """
 
+import difflib
 import math
 import os
 import random
@@ -166,6 +167,106 @@ async def list_categories() -> list[dict]:
         {"name": c["name"], "node": c["node"], "products": await db.products.count_documents({"category_nodes": c["node"]})}
         for c in categories
     ]
+
+
+# Shopper words that mean a different electronics term in the crawled category names.
+SEARCH_SYNONYMS = {
+    "phone": ["mobile"], "smartphone": ["mobile"], "earphone": ["earbud", "headphone"],
+    "headset": ["headphone"], "laptop": ["computer"], "pc": ["computer"], "watch": ["wearable"],
+    "smartwatch": ["wearable"], "kindle": ["ebook"], "projector": ["theater"], "tv": ["television"],
+}
+
+
+def _stem(word: str) -> str:
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _tokens(text: str) -> list[str]:
+    return [_stem(t) for t in re.findall(r"[a-z0-9]+", text.lower())]
+
+
+def _term_score(term: str, name_tokens: list[str]) -> float:
+    if term in name_tokens:
+        return 1.0
+    if len(term) >= 4 and any(t.startswith(term) for t in name_tokens):
+        return 0.8
+    # Typo tolerance: "headphons" still finds "headphone".
+    if len(term) >= 4 and difflib.get_close_matches(term, name_tokens, n=1, cutoff=0.8):
+        return 0.7
+    return 0.0
+
+
+@mcp.tool(
+    "match_category",
+    description=(
+        "Find the category for any shopper search. Searches products by title, brand, features and specs, then "
+        "ranks the categories those products belong to. Returns best, the one category to open when a single "
+        "category clearly fits. Returns matches, several categories to choose from, when more than one fits. "
+        "Returns neither when no product in the data matches."
+    ),
+    annotations=READ_ONLY,
+)
+async def match_category(query: str, limit: int = 5) -> dict:
+    words = re.findall(r"[a-z0-9]+", (query or "").lower())
+    query_terms = [_stem(w) for w in words]
+    counts: Counter = Counter()
+    products = await db.products.find({}, {"_id": 0}).to_list(None)
+    category_names = {}
+    for product in products:
+        names = {n for n in (product.get("breadcrumbs") or []) + (product.get("category_names") or []) if n and n != "Electronics"}
+        category_names[product["asin"]] = names
+        counts.update(names)
+    top_level = await db.categories.find({}, {"_id": 0, "name": 1}).sort("name", 1).to_list(None)
+    examples = [c["name"] for c in top_level][:6]
+    if not words:
+        return {"query": query, "best": None, "matches": [], "matched": 0, "examples": examples}
+
+    # Products match when every word appears in their text; if none do, accept products that match at least half the words.
+    texts = {p["asin"]: _searchable_text(p) for p in products}
+    word_hits = {asin: sum(1 for w in set(words) if w in text) for asin, text in texts.items()}
+    need = len(set(words))
+    hits = [asin for asin, n in word_hits.items() if n == need]
+    if not hits:
+        hits = [asin for asin, n in word_hits.items() if n and n >= math.ceil(need / 2)]
+
+    hit_counts: Counter = Counter()
+    for asin in hits:
+        hit_counts.update(category_names.get(asin, set()))
+
+    # A category name can also match the words directly, e.g. "headphone" matches "Headphones".
+    # A category also qualifies when it holds a fair share of the matched products, e.g. a brand spread across categories.
+    top_hit = max(hit_counts.values(), default=0)
+    candidates = []
+    for name in set(counts) | set(hit_counts):
+        name_tokens = _tokens(name)
+        name_score = 0.0
+        if name_tokens and query_terms:
+            per_term = []
+            for term in query_terms:
+                options = [term] + [s for syn in SEARCH_SYNONYMS.get(term, []) for s in _tokens(syn)]
+                per_term.append(max(_term_score(option, name_tokens) for option in options))
+            name_score = sum(per_term) / len(query_terms)
+        share = hit_counts[name] / len(hits) if hits else 0.0
+        combined = 0.6 * name_score + 0.4 * share
+        if combined >= 0.3 or (hit_counts[name] and hit_counts[name] >= max(1, math.ceil(0.25 * top_hit))):
+            candidates.append((combined, name_score, len(name_tokens), counts[name], name))
+
+    candidates.sort(key=lambda row: (-row[0], row[2], -row[3], row[4]))
+    matches = [
+        {"name": name, "products": counts[name], "matched": hit_counts[name], "score": round(combined, 2)}
+        for combined, _, _, _, name in candidates[:limit]
+    ]
+    # Route straight to one category only when it is the single fit, or the only exact name match.
+    best = None
+    if candidates:
+        top = candidates[0]
+        if len(candidates) == 1 or (top[1] >= 0.9 and candidates[1][1] < 0.9):
+            best = top[4]
+    return {"query": query, "best": best, "matches": matches, "matched": len(hits), "examples": examples}
 
 
 @mcp.tool(

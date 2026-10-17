@@ -1,0 +1,55 @@
+{% extends "web/base.html" %}
+{% load static %}
+{% block title %}RetailPilot · Crawler health{% endblock %}
+{% block body_class %}retailer{% endblock %}
+{% block content %}
+<nav class="navbar" aria-label="Primary navigation">
+  <a class="brand" href="{% url 'landing' %}"><span class="brand-mark" aria-hidden="true">R</span><span>RetailPilot</span></a>
+  <div class="nav-links">
+    <a class="nav-item" href="{% url 'retailer' %}">Retailer dashboard</a>
+    <a class="nav-item" href="{% url 'customer' %}">Customer shop</a>
+    <span class="nav-item active" aria-current="page">Crawler health</span>
+  </div>
+</nav>
+
+<main class="page retailer-page" id="main-content">
+  {% if error %}
+    <section class="dashboard-error">
+      <span class="error-icon" aria-hidden="true">!</span>
+      <div><span class="eyebrow">HEALTH UNAVAILABLE</span><h1>We couldn't load the crawler health.</h1><p class="fine">{{ error }}</p></div>
+      <a class="btn btn-ghost" href="{% url 'crawler_health' %}">Try again</a>
+    </section>
+  {% else %}
+  <div class="page-head">
+    <div class="page-head-copy">
+      <span class="eyebrow"><span class="status-dot"></span> DATA HEALTH</span>
+      <h1>Is the crawler keeping up?</h1>
+      <p class="fine">What is stored, how fresh the city prices are, and how recent crawl runs went.</p>
+    </div>
+  </div>
+
+  <section class="kpis" aria-label="Data health">
+    <div class="kpi"><span>Products</span><b>{{ health.products }}</b></div>
+    <div class="kpi"><span>City offers</span><b>{{ health.offers }}</b></div>
+    <div class="kpi"><span>Price points (window)</span><b>{{ health.history_points }}</b></div>
+    <div class="kpi"><span>Reviews</span><b>{{ health.reviews }}</b></div>
+    <div class="kpi"><span>Stale offers (&gt;{{ health.stale_hours|floatformat:0 }} h)</span><b>{{ health.stale }}</b></div>
+  </section>
+
+  <section class="card">
+    <h3>Recent crawl runs</h3>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Started</th><th>Finished</th><th>Status</th><th>Stats</th></tr></thead>
+        <tbody>
+          {% for r in health.runs %}
+          <tr><td>{{ r.started_at|date:"d M H:i" }}</td><td>{{ r.finished_at|date:"d M H:i"|default:"–" }}</td><td>{{ r.status }}</td>
+              <td>{% for k, v in r.stats.items %}{{ k }}: {{ v }}{% if not forloop.last %}, {% endif %}{% endfor %}</td></tr>
+          {% empty %}<tr><td colspan="4">No crawl runs recorded.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

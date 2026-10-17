@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  const tabs = document.querySelectorAll(".tab");
+  const tabs = document.querySelectorAll("button.tab[data-tab]");
   const panels = document.querySelectorAll("[data-panel]");
 
   function showTab(name) {

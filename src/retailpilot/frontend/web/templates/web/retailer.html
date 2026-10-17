@@ -81,7 +81,6 @@
     <button class="tab" id="tab-margin" role="tab" aria-selected="false" aria-controls="panel-margin" tabindex="-1" data-tab="margin" type="button">Margin</button>
     <button class="tab" id="tab-sentiment" role="tab" aria-selected="false" aria-controls="panel-sentiment" tabindex="-1" data-tab="sentiment" type="button">Reviews &amp; sentiment</button>
     <button class="tab" id="tab-basket" role="tab" aria-selected="false" aria-controls="panel-basket" tabindex="-1" data-tab="basket" type="button">Market basket</button>
-    <button class="tab" id="tab-health" role="tab" aria-selected="false" aria-controls="panel-health" tabindex="-1" data-tab="health" type="button">Data health</button>
   </nav>
 
   <section class="panel" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0" data-panel="overview">
@@ -210,30 +209,6 @@
             {% for r in basket %}
             <tr><td>{{ r.antecedent|truncatechars:45 }}</td><td>{{ r.consequent|truncatechars:45 }}</td><td>{{ r.pair_count }}</td><td>{{ r.support }}</td><td>{{ r.confidence }}</td><td>{{ r.lift }}</td></tr>
             {% empty %}<tr><td colspan="6">Not enough named reviewers who reviewed two or more products.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <section class="panel" id="panel-health" role="tabpanel" aria-labelledby="tab-health" tabindex="0" data-panel="health" hidden>
-    <div class="kpis">
-      <div class="kpi"><span>Products</span><b>{{ health.products }}</b></div>
-      <div class="kpi"><span>City offers</span><b>{{ health.offers }}</b></div>
-      <div class="kpi"><span>Price points (window)</span><b>{{ health.history_points }}</b></div>
-      <div class="kpi"><span>Reviews</span><b>{{ health.reviews }}</b></div>
-      <div class="kpi"><span>Stale offers (&gt;{{ health.stale_hours|floatformat:0 }} h)</span><b>{{ health.stale }}</b></div>
-    </div>
-    <div class="card">
-      <h3>Recent crawl runs</h3>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Started</th><th>Finished</th><th>Status</th><th>Stats</th></tr></thead>
-          <tbody>
-            {% for r in health.runs %}
-            <tr><td>{{ r.started_at|date:"d M H:i" }}</td><td>{{ r.finished_at|date:"d M H:i"|default:"–" }}</td><td>{{ r.status }}</td>
-                <td>{% for k, v in r.stats.items %}{{ k }}: {{ v }}{% if not forloop.last %}, {% endif %}{% endfor %}</td></tr>
-            {% empty %}<tr><td colspan="4">No crawl runs recorded.</td></tr>{% endfor %}
           </tbody>
         </table>
       </div>

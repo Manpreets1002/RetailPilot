@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     django_secret_key: str | None = None
 
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.1-flash-lite"
+    gemini_vertexai: bool = True
     mongo_uri: str = "mongodb://localhost:27018"
     mongo_db: str = "amazon_ecomm"
     chat_db: str = "chatbot"
