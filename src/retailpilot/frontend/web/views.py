@@ -1,13 +1,13 @@
 import json
 import uuid
 
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
 import plotly.graph_objects as go
 
 from web import analytics
-from web.backend import BackendError, get, post
+from web.backend import BackendError, get, open_stream, post
 
 PURPLE = "#5749D8"
 TEAL = "#139F83"
@@ -19,6 +19,7 @@ CUSTOMER_ASSISTANT = {
     "role": "customer",
     "citySelect": "city",
     "greeting": "Hi! Ask me about a product's price, its specs, pros and cons, or how past prices looked.",
+    "history": True,
 }
 
 
@@ -236,6 +237,14 @@ def retailer(request: HttpRequest):
     return render(request, "web/retailer.html", context)
 
 
+def crawler_health(request: HttpRequest):
+    try:
+        data = analytics.load()
+    except Exception as exc:  # pymongo raises several types for "cannot connect"
+        return render(request, "web/crawler_health.html", {"error": f"Cannot read MongoDB ({exc.__class__.__name__})."})
+    return render(request, "web/crawler_health.html", {"health": analytics.health(data)})
+
+
 def customer(request: HttpRequest):
     request.session.setdefault("shopper_id", str(uuid.uuid4()))
     return render(request, "web/customer.html", {"assistant": CUSTOMER_ASSISTANT})
@@ -259,6 +268,17 @@ def api_cities(request: HttpRequest):
 def api_categories(request: HttpRequest):
     try:
         return JsonResponse({"categories": get("/categories")})
+    except BackendError as exc:
+        return _json_error(exc)
+
+
+@require_GET
+def api_category_search(request: HttpRequest):
+    query = request.GET.get("q", "").strip()[:80]
+    if not query:
+        return JsonResponse({"query": "", "best": None, "matches": [], "examples": []})
+    try:
+        return JsonResponse(get("/category-search", q=query, limit=5))
     except BackendError as exc:
         return _json_error(exc)
 
@@ -332,3 +352,50 @@ def api_answer(request: HttpRequest, thread_id: str):
         return JsonResponse(post(f"/chat/{thread_id}/answer", {"answer": body.get("answer", "")}))
     except BackendError as exc:
         return _json_error(exc, 409 if "not waiting" in str(exc) else 502)
+
+
+def _stream_response(path: str, payload: dict):
+    try:
+        client, upstream = open_stream(path, payload)
+    except BackendError as exc:
+        return _json_error(exc)
+    if upstream.status_code >= 400:
+        upstream.read()
+        try:
+            detail = upstream.json().get("detail", upstream.text)
+        except ValueError:
+            detail = upstream.text
+        upstream.close()
+        client.close()
+        return JsonResponse({"detail": str(detail)}, status=upstream.status_code)
+
+    def chunks():
+        try:
+            yield from upstream.iter_bytes()
+        finally:
+            upstream.close()
+            client.close()
+
+    response = StreamingHttpResponse(chunks(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
+@require_POST
+def api_chat_stream(request: HttpRequest):
+    body = json.loads(request.body or "{}")
+    message = (body.get("message") or "").strip()
+    if not message:
+        return JsonResponse({"detail": "Write a message first."}, status=400)
+    role = body.get("role") if body.get("role") in ("customer", "retailer") else None
+    payload = {"message": message, "thread_id": body.get("thread_id") or None, "role": role}
+    if role == "customer":
+        payload["message"] = f"My delivery city is {body.get('city', 'delhi')}. {message}"
+    return _stream_response("/chat/stream", payload)
+
+
+@require_POST
+def api_answer_stream(request: HttpRequest, thread_id: str):
+    body = json.loads(request.body or "{}")
+    return _stream_response(f"/chat/{thread_id}/answer/stream", {"answer": body.get("answer", "")})

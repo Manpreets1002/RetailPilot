@@ -4,13 +4,14 @@ Run from the repo root:
   .venv\\Scripts\\python.exe -m uvicorn retailpilot.backend.agent_route:app --reload
 """
 
+import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from retailpilot.agent.chatbot import (
@@ -87,6 +88,42 @@ async def answer(thread_id: str, body: AnswerRequest) -> ChatResponse:
     return ChatResponse(thread_id=thread_id, **out)
 
 
+async def _sse(events):
+    async for event in events:
+        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+def _event_stream(events):
+    return StreamingResponse(
+        _sse(events),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/chat/stream")
+async def chat_stream(body: ChatRequest):
+    thread_id = body.thread_id or str(uuid.uuid4())
+    try:
+        events = await state["chat"].start_send(thread_id, body.message, role=body.role)
+    except ThreadWaiting:
+        raise HTTPException(status_code=409, detail="This thread is waiting for an answer to a question.")
+    except ChatNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return _event_stream(events)
+
+
+@app.post("/chat/{thread_id}/answer/stream")
+async def answer_stream(thread_id: str, body: AnswerRequest):
+    try:
+        events = await state["chat"].start_answer(thread_id, body.answer)
+    except ThreadNotWaiting:
+        raise HTTPException(status_code=409, detail="This thread is not waiting for an answer.")
+    except ChatNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return _event_stream(events)
+
+
 class InterestRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=100)
     asin: str = Field(min_length=10, max_length=10)
@@ -102,6 +139,11 @@ async def cities() -> list[dict]:
 async def categories() -> list[dict]:
     rows = await state["chat"].call_tool("list_categories", {})
     return [r for r in rows if r["products"] > 0]
+
+
+@app.get("/category-search")
+async def category_search(q: str, limit: int = 5) -> dict:
+    return await state["chat"].call_tool("match_category", {"query": q, "limit": max(1, min(limit, 10))})
 
 
 @app.get("/recommendations")
