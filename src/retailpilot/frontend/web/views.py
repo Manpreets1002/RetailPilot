@@ -9,11 +9,11 @@ import plotly.graph_objects as go
 from web import analytics
 from web.backend import BackendError, get, post
 
-PURPLE = "#714B67"
-TEAL = "#00A09D"
-AMBER = "#F29F05"
-RED = "#E4572E"
-PALETTE = [PURPLE, TEAL, AMBER, RED, "#5B8DEF", "#8E9AAF"]
+PURPLE = "#5749D8"
+TEAL = "#139F83"
+AMBER = "#E9A33E"
+RED = "#D84F5F"
+PALETTE = [PURPLE, TEAL, AMBER, RED, "#647CE8", "#8E73D2"]
 
 CUSTOMER_ASSISTANT = {
     "role": "customer",
@@ -43,8 +43,11 @@ def _chart(fig: go.Figure, height: int, margin: dict | None = None) -> dict:
         colorway=PALETTE,
         height=height,
         margin=margin or {"l": 50, "r": 20, "t": 20, "b": 40},
-        font={"family": "Segoe UI, system-ui, sans-serif", "color": "#2B2330", "size": 13},
+        font={"family": "Inter, Segoe UI, system-ui, sans-serif", "color": "#353B50", "size": 12},
+        hoverlabel={"bgcolor": "#191D39", "font": {"color": "#FFFFFF", "size": 12}},
     )
+    fig.update_xaxes(gridcolor="rgba(104, 112, 134, .12)", zerolinecolor="rgba(104, 112, 134, .18)")
+    fig.update_yaxes(gridcolor="rgba(104, 112, 134, .12)", zerolinecolor="rgba(104, 112, 134, .18)")
     return json.loads(fig.to_json())
 
 
@@ -75,7 +78,7 @@ def _competitor_chart(sel: dict, peers: list[dict]) -> dict:
         x=[r[0] for r in rows],
         y=[(r[1] or "")[:36] for r in rows],
         orientation="h",
-        marker_color=[TEAL if r[2] else "#C9B8C4" for r in rows],
+        marker_color=[TEAL if r[2] else "#C9CEDB" for r in rows],
         hovertemplate="%{y}<br>₹%{x:,.0f}<extra></extra>",
     ))
     fig.update_xaxes(title_text="Price (INR) · teal = your product")

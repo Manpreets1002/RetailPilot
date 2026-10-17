@@ -37,6 +37,7 @@
 
   function setOpen(open) {
     panel.hidden = !open;
+    el("rp-fab").setAttribute("aria-expanded", String(open));
     if (open) {
       render();
       input.focus();
