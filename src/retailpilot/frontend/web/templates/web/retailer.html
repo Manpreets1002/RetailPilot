@@ -93,8 +93,8 @@
     </div>
     <div class="chart-grid">
       <div class="card">
-        <h3>Your price over the last {{ days }} days</h3>
-        <p class="chart-help">Each dot is the price we saw on that day. A line going down means the price dropped.</p>
+        <h3>Price over the last {{ days }} days: you vs competitors</h3>
+        <p class="chart-help">Your product is the thick green line. The thinner lines are the nearest-priced competitors in {{ city }}. A line going down means the price dropped.</p>
         {% if charts.trend %}<div id="chart-trend" class="chart"></div><button class="btn btn-ghost btn-small chart-ask" type="button" data-chart-ask="trend">Ask RetailPilot about this graph</button>{% else %}<p class="fine">{% if history %}Only one day of prices so far. A trend line appears once we have two or more days.{% else %}No price history in this window yet.{% endif %}</p>{% endif %}
       </div>
       <div class="card">
@@ -104,9 +104,11 @@
         <button class="btn btn-ghost btn-small chart-ask" type="button" data-chart-ask="category">Ask RetailPilot about this graph</button>
       </div>
       <div class="card">
-        <h3>Your price compared with competitors</h3>
-        <p class="chart-help">Sorted from cheapest to most expensive. Your product is the green bar.</p>
-        {% if charts.competitor %}<div id="chart-competitor" class="chart"></div><button class="btn btn-ghost btn-small chart-ask" type="button" data-chart-ask="competitor">Ask RetailPilot about this graph</button>{% else %}<p class="fine">No competing products in this subcategory and city.</p>{% endif %}
+        <h3>Your product vs the one customers buy with it most</h3>
+        {% if charts.companion %}
+          <p class="chart-help">{{ companion.count }} reviewers bought both. Their most frequent companion is <b>{{ companion_offer.title|default:companion.title }}</b>.</p>
+          <div id="chart-companion" class="chart"></div><button class="btn btn-ghost btn-small chart-ask" type="button" data-chart-ask="companion">Ask RetailPilot about this graph</button>
+        {% else %}<p class="fine">No shopping pattern yet: no named reviewer has reviewed this product together with another one.</p>{% endif %}
       </div>
       <div class="card">
         <h3>How customers feel about this product</h3>

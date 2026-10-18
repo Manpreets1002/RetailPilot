@@ -87,7 +87,7 @@ def test_retailer_dashboard_renders_charts_insights_and_assistant(client, datase
     response = client.get("/retailer/", {"city": "delhi", "unit_cost": "30000"})
     assert response.status_code == 200
     body = response.content.decode()
-    for chart in ("chart-category", "chart-trend", "chart-competitor", "chart-sentiment",
+    for chart in ("chart-category", "chart-trend", "chart-companion", "chart-sentiment",
                   "chart-heatmap", "chart-margin"):
         assert f'id="{chart}"' in body, chart
     assert 'id="charts"' in body
