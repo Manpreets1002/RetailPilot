@@ -59,24 +59,52 @@ def _chart(fig: go.Figure, height: int, margin: dict | None = None) -> dict:
     return json.loads(fig.to_json())
 
 
+MUTED_BAR = "#B9D9CB"
+MIXED = "#B8B5AA"
+
+
+def _short(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 def _trend_chart(history: list[tuple[str, float]]) -> dict:
+    dates = [d for d, _ in history]
+    prices = [p for _, p in history]
     fig = go.Figure(go.Scatter(
-        x=[d for d, _ in history], y=[p for _, p in history], mode="lines+markers",
-        line={"color": GREEN, "width": 3}, marker={"size": 7, "color": GREEN},
-        hovertemplate="%{x}<br>₹%{y:,.0f}<extra></extra>",
+        x=dates, y=prices, mode="lines+markers",
+        line={"color": GREEN, "width": 3}, marker={"size": 8, "color": GREEN, "line": {"color": "#FFFFFF", "width": 2}},
+        hovertemplate="%{x}<br>Price ₹%{y:,.0f}<extra></extra>",
     ))
-    fig.update_yaxes(title_text="Price (INR)")
-    return _chart(fig, 300)
+    # Label the newest price so the reader does not have to hunt for "where are we now".
+    fig.add_annotation(x=dates[-1], y=prices[-1], text=f"<b>Latest ₹{prices[-1]:,.0f}</b>", showarrow=False,
+                       xanchor="left", xshift=10, font={"color": GREEN, "size": 13})
+    # Dates are labels, not times, and the price axis is padded so small moves are visible without repeated ticks.
+    low, high = min(prices), max(prices)
+    pad = max((high - low) * 0.25, 2)
+    fig.update_xaxes(type="category")
+    fig.update_yaxes(title_text="Price (INR)", tickprefix="₹", tickformat=",.0f", nticks=5,
+                     range=[low - pad, high + pad])
+    return _chart(fig, 300, {"l": 70, "r": 110, "t": 20, "b": 50})
 
 
-def _category_chart(rows: list[dict]) -> dict:
+def _category_chart(rows: list[dict], selected: str | None) -> dict:
+    # Cheapest on top, so the eye reads down from low to high. The category of the selected product is highlighted.
+    rows = sorted(rows, key=lambda r: r["avg_price"])
     fig = go.Figure(go.Bar(
-        x=[r["category"] for r in rows], y=[r["avg_price"] for r in rows], marker_color=TEAL,
-        text=[f"{r['products']} products" for r in rows], textposition="outside",
-        hovertemplate="%{x}<br>Average ₹%{y:,.0f}<extra></extra>",
+        x=[r["avg_price"] for r in rows],
+        y=[_short(r["category"], 30) for r in rows],
+        orientation="h",
+        marker_color=[GREEN if r["category"] == selected else MUTED_BAR for r in rows],
+        text=[f"₹{r['avg_price']:,.0f}" for r in rows],
+        textposition="outside", cliponaxis=False,
+        customdata=[[r["category"], r["products"]] for r in rows],
+        hovertemplate="%{customdata[0]}<br>Average ₹%{x:,.0f}<br>%{customdata[1]} products<extra></extra>",
     ))
-    fig.update_yaxes(title_text="Average price (INR)")
-    return _chart(fig, 320, {"l": 60, "r": 20, "t": 30, "b": 60})
+    fig.update_yaxes(autorange="reversed", automargin=True)
+    fig.update_xaxes(title_text="Average price (INR)", tickprefix="₹", tickformat=",.0f",
+                     range=[0, max(r["avg_price"] for r in rows) * 1.18])
+    fig.update_traces(width=0.62)
+    return _chart(fig, max(260, 30 * len(rows) + 70), {"l": 10, "r": 10, "t": 10, "b": 50})
 
 
 def _competitor_chart(sel: dict, peers: list[dict]) -> dict:
@@ -84,13 +112,19 @@ def _competitor_chart(sel: dict, peers: list[dict]) -> dict:
     rows.sort(key=lambda r: r[0])
     fig = go.Figure(go.Bar(
         x=[r[0] for r in rows],
-        y=[(r[1] or "")[:36] for r in rows],
+        y=[_short(r[1] or "Unnamed product", 30) for r in rows],
         orientation="h",
-        marker_color=[TEAL if r[2] else "#C9CEDB" for r in rows],
-        hovertemplate="%{y}<br>₹%{x:,.0f}<extra></extra>",
+        marker_color=[GREEN if r[2] else MUTED_BAR for r in rows],
+        text=[f"₹{r[0]:,.0f}" + (" · yours" if r[2] else "") for r in rows],
+        textposition="outside", cliponaxis=False,
+        hovertemplate="%{customdata}<br>₹%{x:,.0f}<extra></extra>",
+        customdata=[r[1] or "Unnamed product" for r in rows],
     ))
-    fig.update_xaxes(title_text="Price (INR) · teal = your product")
-    return _chart(fig, max(300, 30 * len(rows) + 80), {"l": 230, "r": 20, "t": 10, "b": 50})
+    fig.update_yaxes(autorange="reversed", automargin=True)
+    fig.update_xaxes(title_text="Price (INR)", tickprefix="₹", tickformat=",.0f",
+                     range=[0, max(r[0] for r in rows) * 1.3])
+    fig.update_traces(width=0.62)
+    return _chart(fig, max(240, 30 * len(rows) + 70), {"l": 10, "r": 10, "t": 10, "b": 50})
 
 
 def _margin_chart(scenarios: list[dict]) -> dict:
@@ -105,13 +139,27 @@ def _margin_chart(scenarios: list[dict]) -> dict:
 
 
 def _sentiment_chart(product_sent: dict) -> dict:
-    mixed = max(0.0, round(100 - product_sent["positive_pct"] - product_sent["negative_pct"], 1))
-    fig = go.Figure(go.Pie(
-        labels=["Positive", "Mixed", "Negative"],
-        values=[product_sent["positive_pct"], mixed, product_sent["negative_pct"]],
-        hole=0.55, sort=False, marker={"colors": [TEAL, AMBER, RED]}, textinfo="label+percent",
-    ))
-    return _chart(fig, 300, {"l": 10, "r": 10, "t": 10, "b": 10})
+    positive = product_sent["positive_pct"]
+    negative = product_sent["negative_pct"]
+    mixed = max(0.0, round(100 - positive - negative, 1))
+    # One 100% bar, split into three labelled parts. Small parts drop their inside label; the hover and legend still name them.
+    fig = go.Figure()
+    for name, value, color, text_color in (
+        ("Positive", positive, GREEN, "#FFFFFF"),
+        ("Mixed", mixed, MIXED, "#1F2235"),
+        ("Negative", negative, RED, "#FFFFFF"),
+    ):
+        fig.add_trace(go.Bar(
+            name=name, x=[value], y=[""], orientation="h", marker_color=color,
+            text=[f"{name} {value:.0f}%" if value >= 12 else ""], textposition="inside", insidetextanchor="middle",
+            textfont={"color": text_color, "size": 13},
+            hovertemplate=f"{name}: %{{x:.0f}}% of reviews<extra></extra>",
+        ))
+    fig.update_layout(barmode="stack", bargap=0.2, showlegend=True,
+                      legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0})
+    fig.update_xaxes(range=[0, 100], ticksuffix="%", title_text="Share of stored reviews")
+    fig.update_yaxes(visible=False)
+    return _chart(fig, 170, {"l": 10, "r": 20, "t": 50, "b": 50})
 
 
 def _heatmap_chart(cities: list[str], labels: list[str], grid: list[list[float | None]]) -> dict:
@@ -193,9 +241,9 @@ def retailer(request: HttpRequest):
     product_sent = analytics.product_sentiment(sent, asin)
     health = analytics.health(data)
 
-    charts = {"category": _category_chart(analytics.category_overview(data, city))}
+    charts = {"category": _category_chart(analytics.category_overview(data, city), sel["category"])}
     history = analytics.price_history(data, asin, city, days)
-    if history:
+    if len(history) >= 2:
         charts["trend"] = _trend_chart(history)
     if peers:
         charts["competitor"] = _competitor_chart(sel, peers)

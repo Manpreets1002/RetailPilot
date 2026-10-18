@@ -94,6 +94,9 @@ table.table th { color: var(--muted); font-weight: 600; font-size: .8rem; text-t
 .rp-form { display: flex; gap: .5rem; padding: .7rem; border-top: 1px solid var(--line); }
 .rp-form input { flex: 1; min-width: 0; padding: .5rem .7rem; border: 1px solid var(--line); border-radius: 6px; font-size: .95rem; }
 
+/* Retailer chart captions: one plain sentence explaining how to read each chart */
+.chart-help { margin: .2rem 0 .7rem; color: var(--muted); font-size: .9rem; line-height: 1.45; }
+
 /* customer shop */
 .search-mode .picks-intro, .search-mode #picks-block, .search-mode #back-cats { display: none; }
 .shop-search-box { position: relative; margin-top: 1.2rem; }
