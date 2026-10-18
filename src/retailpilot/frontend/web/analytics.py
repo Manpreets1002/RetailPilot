@@ -250,7 +250,8 @@ def product_sentiment(sent: dict | None, asin: str) -> dict | None:
 
 # ----------------------------------------------------------------- market basket (research)
 
-def basket_rules(data: dict, min_count: int = 2, top: int = 30) -> list[dict]:
+def _baskets(data: dict) -> list[frozenset[str]]:
+    """One set of products per named reviewer who reviewed at least two of them (a proxy for a shopping basket)."""
     def build():
         baskets: dict[str, set[str]] = {}
         for r in data["reviews"]:
@@ -258,7 +259,26 @@ def basket_rules(data: dict, min_count: int = 2, top: int = 30) -> list[dict]:
             if author in GENERIC_AUTHORS or not r.get("asin"):
                 continue
             baskets.setdefault(author, set()).add(r["asin"])
-        sets = [frozenset(s) for s in baskets.values() if len(s) >= 2]
+        return [frozenset(s) for s in baskets.values() if len(s) >= 2]
+
+    return _cached("baskets", build)
+
+
+def top_companion(data: dict, asin: str) -> dict | None:
+    """The product most often reviewed alongside `asin`, with how many reviewers did both."""
+    counts: Counter = Counter()
+    for basket in _baskets(data):
+        if asin in basket:
+            counts.update(other for other in basket if other != asin)
+    if not counts:
+        return None
+    other, count = counts.most_common(1)[0]
+    return {"asin": other, "title": data["products"].get(other, {}).get("title") or other, "count": count}
+
+
+def basket_rules(data: dict, min_count: int = 2, top: int = 30) -> list[dict]:
+    def build():
+        sets = _baskets(data)
         n = len(sets)
         if n == 0:
             return []

@@ -67,24 +67,38 @@ def _short(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def _trend_chart(history: list[tuple[str, float]]) -> dict:
+RIVAL_COLORS = ["#2a78d6", "#eb6834", "#6250d6"]  # validated categorical slots, used only for competitor lines
+
+
+def _trend_chart(history: list[tuple[str, float]], rivals: list[tuple[str, list[tuple[str, float]]]]) -> dict:
+    fig = go.Figure()
+    all_prices = [p for _, p in history]
+    for i, (title, points) in enumerate(rivals):
+        all_prices += [p for _, p in points]
+        fig.add_trace(go.Scatter(
+            x=[d for d, _ in points], y=[p for _, p in points], mode="lines+markers", name=_short(title, 30),
+            line={"color": RIVAL_COLORS[i], "width": 2}, marker={"size": 6, "color": RIVAL_COLORS[i]},
+            hovertemplate=f"{_short(title, 30)}<br>%{{x}}<br>₹%{{y:,.0f}}<extra></extra>",
+        ))
     dates = [d for d, _ in history]
     prices = [p for _, p in history]
-    fig = go.Figure(go.Scatter(
-        x=dates, y=prices, mode="lines+markers",
-        line={"color": GREEN, "width": 3}, marker={"size": 8, "color": GREEN, "line": {"color": "#FFFFFF", "width": 2}},
-        hovertemplate="%{x}<br>Price ₹%{y:,.0f}<extra></extra>",
-    ))
-    # Label the newest price so the reader does not have to hunt for "where are we now".
-    fig.add_annotation(x=dates[-1], y=prices[-1], text=f"<b>Latest ₹{prices[-1]:,.0f}</b>", showarrow=False,
-                       xanchor="left", xshift=10, font={"color": GREEN, "size": 13})
+    if history:
+        fig.add_trace(go.Scatter(
+            x=dates, y=prices, mode="lines+markers", name="Your product",
+            line={"color": GREEN, "width": 3.5}, marker={"size": 8, "color": GREEN, "line": {"color": "#FFFFFF", "width": 2}},
+            hovertemplate="Your product<br>%{x}<br>₹%{y:,.0f}<extra></extra>",
+        ))
+        # Label the newest price so the reader does not have to hunt for "where are we now".
+        fig.add_annotation(x=dates[-1], y=prices[-1], text=f"<b>Yours ₹{prices[-1]:,.0f}</b>", showarrow=False,
+                           xanchor="left", xshift=10, font={"color": GREEN, "size": 13})
     # Dates are labels, not times, and the price axis is padded so small moves are visible without repeated ticks.
-    low, high = min(prices), max(prices)
+    low, high = min(all_prices), max(all_prices)
     pad = max((high - low) * 0.25, 2)
     fig.update_xaxes(type="category")
     fig.update_yaxes(title_text="Price (INR)", tickprefix="₹", tickformat=",.0f", nticks=5,
                      range=[low - pad, high + pad])
-    return _chart(fig, 300, {"l": 70, "r": 110, "t": 20, "b": 50})
+    fig.update_layout(showlegend=True, legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0})
+    return _chart(fig, 330, {"l": 70, "r": 120, "t": 50, "b": 50})
 
 
 def _category_chart(rows: list[dict], selected: str | None) -> dict:
@@ -107,24 +121,19 @@ def _category_chart(rows: list[dict], selected: str | None) -> dict:
     return _chart(fig, max(260, 30 * len(rows) + 70), {"l": 10, "r": 10, "t": 10, "b": 50})
 
 
-def _competitor_chart(sel: dict, peers: list[dict]) -> dict:
-    rows = [(sel["price"], sel["title"], True)] + [(p["price"], p["title"], False) for p in peers]
-    rows.sort(key=lambda r: r[0])
+def _companion_chart(sel: dict, companion: dict, companion_price: float) -> dict:
+    # Two bars only: the selected product and the one customers most often buy with it.
+    names = ["Your product", _short(companion["title"], 40)]
+    prices = [sel["price"], companion_price]
     fig = go.Figure(go.Bar(
-        x=[r[0] for r in rows],
-        y=[_short(r[1] or "Unnamed product", 30) for r in rows],
-        orientation="h",
-        marker_color=[GREEN if r[2] else MUTED_BAR for r in rows],
-        text=[f"₹{r[0]:,.0f}" + (" · yours" if r[2] else "") for r in rows],
-        textposition="outside", cliponaxis=False,
-        hovertemplate="%{customdata}<br>₹%{x:,.0f}<extra></extra>",
-        customdata=[r[1] or "Unnamed product" for r in rows],
+        x=prices, y=names, orientation="h", marker_color=[GREEN, MUTED_BAR],
+        text=[f"₹{p:,.0f}" for p in prices], textposition="outside", cliponaxis=False,
+        hovertemplate="%{y}<br>₹%{x:,.0f}<extra></extra>",
     ))
     fig.update_yaxes(autorange="reversed", automargin=True)
-    fig.update_xaxes(title_text="Price (INR)", tickprefix="₹", tickformat=",.0f",
-                     range=[0, max(r[0] for r in rows) * 1.3])
-    fig.update_traces(width=0.62)
-    return _chart(fig, max(240, 30 * len(rows) + 70), {"l": 10, "r": 10, "t": 10, "b": 50})
+    fig.update_xaxes(title_text="Price (INR)", tickprefix="₹", tickformat=",.0f", range=[0, max(prices) * 1.3])
+    fig.update_traces(width=0.5)
+    return _chart(fig, 200, {"l": 10, "r": 10, "t": 10, "b": 50})
 
 
 def _margin_chart(scenarios: list[dict]) -> dict:
@@ -243,10 +252,22 @@ def retailer(request: HttpRequest):
 
     charts = {"category": _category_chart(analytics.category_overview(data, city), sel["category"])}
     history = analytics.price_history(data, asin, city, days)
-    if len(history) >= 2:
-        charts["trend"] = _trend_chart(history)
-    if peers:
-        charts["competitor"] = _competitor_chart(sel, peers)
+    # Competitor lines: the nearest-priced rivals that have at least two days of prices in this city.
+    rivals = []
+    for peer in peers:
+        points = analytics.price_history(data, peer["asin"], city, days)
+        if len(points) >= 2:
+            rivals.append((peer["title"] or peer["asin"], points))
+        if len(rivals) == len(RIVAL_COLORS):
+            break
+    if len(history) >= 2 or rivals:
+        charts["trend"] = _trend_chart(history, rivals)
+    companion = analytics.top_companion(data, asin)
+    companion_offer = None
+    if companion:
+        companion_offer = next((o for o in data["offers"] if o["city"] == city and o["asin"] == companion["asin"]), None)
+    if companion_offer:
+        charts["companion"] = _companion_chart(sel, companion, companion_offer["price"])
     cities_, labels, grid = analytics.gap_matrix(data, sel["category"])
     if len(cities_) > 1 and labels:
         charts["heatmap"] = _heatmap_chart(cities_, labels, grid)
@@ -280,6 +301,8 @@ def retailer(request: HttpRequest):
         "pos_terms": sent["pos_terms"] if sent else [],
         "neg_terms": sent["neg_terms"] if sent else [],
         "basket": analytics.basket_rules(data),
+        "companion": companion,
+        "companion_offer": companion_offer,
         "health": health,
         "charts": charts,
         "insights": _insights(sel, peers, gap_pct, product_sent, scenarios, health),
