@@ -96,6 +96,7 @@ table.table th { color: var(--muted); font-weight: 600; font-size: .8rem; text-t
 
 /* Retailer chart captions: one plain sentence explaining how to read each chart */
 .chart-help { margin: .2rem 0 .7rem; color: var(--muted); font-size: .9rem; line-height: 1.45; }
+.chart-ask { margin-top: .6rem; }
 
 /* customer shop */
 .search-mode .picks-intro, .search-mode #picks-block, .search-mode #back-cats { display: none; }
