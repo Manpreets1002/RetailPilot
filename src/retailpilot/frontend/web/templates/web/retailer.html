@@ -15,7 +15,7 @@
   {% endif %}
 </nav>
 
-<main class="page retailer-page" id="main-content">
+<main class="page retailer-page" id="main-content" data-page-context="{{ assistant.context|default:'' }}">
   {% if error %}
     <section class="dashboard-error">
       <span class="error-icon" aria-hidden="true">!</span>
@@ -93,20 +93,25 @@
     </div>
     <div class="chart-grid">
       <div class="card">
-        <h3>Price trend · last {{ days }} days</h3>
-        {% if charts.trend %}<div id="chart-trend" class="chart"></div>{% else %}<p class="fine">No price history in this window yet.</p>{% endif %}
+        <h3>Your price over the last {{ days }} days</h3>
+        <p class="chart-help">Each dot is the price we saw on that day. A line going down means the price dropped.</p>
+        {% if charts.trend %}<div id="chart-trend" class="chart"></div><button class="btn btn-ghost btn-small chart-ask" type="button" data-chart-ask="trend">Ask RetailPilot about this graph</button>{% else %}<p class="fine">{% if history %}Only one day of prices so far. A trend line appears once we have two or more days.{% else %}No price history in this window yet.{% endif %}</p>{% endif %}
       </div>
       <div class="card">
-        <h3>Average price by subcategory · {{ city }}</h3>
+        <h3>Average price in each category · {{ city }}</h3>
+        <p class="chart-help">Cheapest categories are at the top. The green bar is the category your product belongs to.</p>
         <div id="chart-category" class="chart"></div>
+        <button class="btn btn-ghost btn-small chart-ask" type="button" data-chart-ask="category">Ask RetailPilot about this graph</button>
       </div>
       <div class="card">
-        <h3>Your price vs competitors</h3>
-        {% if charts.competitor %}<div id="chart-competitor" class="chart"></div>{% else %}<p class="fine">No competing products in this subcategory and city.</p>{% endif %}
+        <h3>Your price compared with competitors</h3>
+        <p class="chart-help">Sorted from cheapest to most expensive. Your product is the green bar.</p>
+        {% if charts.competitor %}<div id="chart-competitor" class="chart"></div><button class="btn btn-ghost btn-small chart-ask" type="button" data-chart-ask="competitor">Ask RetailPilot about this graph</button>{% else %}<p class="fine">No competing products in this subcategory and city.</p>{% endif %}
       </div>
       <div class="card">
-        <h3>Review sentiment mix</h3>
-        {% if charts.sentiment %}<div id="chart-sentiment" class="chart"></div>{% else %}<p class="fine">No stored reviews for this product.</p>{% endif %}
+        <h3>How customers feel about this product</h3>
+        <p class="chart-help">Share of the stored reviews that are positive, mixed or negative. A longer green part is better.</p>
+        {% if charts.sentiment %}<div id="chart-sentiment" class="chart"></div><button class="btn btn-ghost btn-small chart-ask" type="button" data-chart-ask="sentiment">Ask RetailPilot about this graph</button>{% else %}<p class="fine">No stored reviews for this product.</p>{% endif %}
       </div>
     </div>
   </section>
@@ -222,5 +227,6 @@
 {% endblock %}
 {% block scripts %}
 {% if assistant %}<script src="{% static 'web/js/assistant.js' %}"></script>{% endif %}
+<script src="{% static 'web/js/assistant.js' %}"></script>
 <script src="{% static 'web/js/retailer.js' %}"></script>
 {% endblock %}
