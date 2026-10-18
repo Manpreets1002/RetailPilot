@@ -158,6 +158,20 @@ async def recommendations(session_id: str, category: str, city: str = "delhi", l
     return result
 
 
+@app.get("/products")
+async def products(
+    city: str,
+    category: str | None = None,
+    q: str | None = None,
+    limit: int = 12,
+    offset: int = 0,
+) -> dict:
+    return await state["chat"].call_tool(
+        "customer_products",
+        {"city": city, "category": category, "query": q, "limit": max(1, min(limit, 50)), "offset": max(0, offset)},
+    )
+
+
 @app.get("/recommendations/shown")
 async def shown(session_id: str) -> list[dict]:
     return await state["chat"].history.shown(session_id)

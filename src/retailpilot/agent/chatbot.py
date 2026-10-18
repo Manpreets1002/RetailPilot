@@ -13,14 +13,13 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pymongo import MongoClient
 
 from retailpilot.agent.history import ChatHistory
 from retailpilot.config.config import settings
 from retailpilot.agent.mcp_wrapper import IST, MCPToolkit
 from retailpilot.agent.prompt import (
-    REVIEW_PROMPT,
     ROUTER_PROMPT,
     SYSTEM_CUSTOMER_PROMPT,
     SYSTEM_RETAILER_PROMPT,
@@ -31,19 +30,11 @@ from retailpilot.agent.state import RetailPilot, ThreadGeneration
 CHANNEL = "amazon"
 ROLES = ("customer", "retailer")
 SYSTEM_PROMPTS = {"customer": SYSTEM_CUSTOMER_PROMPT, "retailer": SYSTEM_RETAILER_PROMPT}
-MAX_REVIEW_RETRIES = 1
-TOOL_RESULT_CHARS = 4000
 
 
 class RouteDecision(BaseModel):
     role: Literal["customer", "retailer"]
     reason: str
-
-
-class ReviewResult(BaseModel):
-    passed: bool
-    coverage: float = Field(ge=0, le=1)
-    missing: list[str] = Field(default_factory=list)
 
 
 class ThreadWaiting(Exception):
@@ -82,22 +73,11 @@ def _text(message: BaseMessage) -> str:
 
 
 def _is_user_turn(message: BaseMessage) -> bool:
-    return isinstance(message, HumanMessage) and message.name != "review_feedback"
+    return isinstance(message, HumanMessage)
 
 
 def _last_user_text(messages: list[BaseMessage]) -> str:
     return next((_text(m) for m in reversed(messages) if _is_user_turn(m)), "")
-
-
-def _turn_transcript(messages: list[BaseMessage]) -> str:
-    start = max((i for i, m in enumerate(messages) if _is_user_turn(m)), default=0)
-    lines = []
-    for m in messages[start:]:
-        if isinstance(m, ToolMessage):
-            lines.append(f"Tool result: {_text(m)[:TOOL_RESULT_CHARS]}")
-        elif isinstance(m, AIMessage) and m.tool_calls:
-            lines.append("Tool calls: " + ", ".join(f"{c['name']}({c['args']})" for c in m.tool_calls))
-    return "\n".join(lines) or "(no tool results)"
 
 
 def build_graph(llm: ChatGoogleGenerativeAI, mcp_tools: list, checkpointer: Any):
@@ -110,7 +90,6 @@ def build_graph(llm: ChatGoogleGenerativeAI, mcp_tools: list, checkpointer: Any)
         for role in ROLES
     }
     router = llm.with_structured_output(RouteDecision)
-    reviewer = llm.with_structured_output(ReviewResult)
 
     async def route(state: RetailPilot, config: RunnableConfig) -> dict:
         override = (config.get("configurable") or {}).get("role_override")
@@ -135,7 +114,7 @@ def build_graph(llm: ChatGoogleGenerativeAI, mcp_tools: list, checkpointer: Any)
     def route_after_agent(state: RetailPilot) -> str:
         last = state["messages"][-1]
         if not getattr(last, "tool_calls", None):
-            return "review"
+            return END
         if any(c["name"] == "ask_user" for c in last.tool_calls):
             return "ask_user"
         return "tools"
@@ -168,39 +147,14 @@ def build_graph(llm: ChatGoogleGenerativeAI, mcp_tools: list, checkpointer: Any)
                 outputs.append(ToolMessage(content=str(answer), tool_call_id=call["id"]))
         return {"messages": outputs}
 
-    async def review(state: RetailPilot) -> Command:
-        messages = state["messages"]
-        answer = _text(messages[-1])
-        result: ReviewResult = await reviewer.ainvoke([
-            SystemMessage(content=REVIEW_PROMPT),
-            HumanMessage(content=(
-                f"User question:\n{_last_user_text(messages)}\n\n"
-                f"Conversation tool results:\n{_turn_transcript(messages)}\n\n"
-                f"Assistant answer:\n{answer}"
-            )),
-        ])
-        attempts = state["review_attempts"] + 1
-        if result.passed or attempts > MAX_REVIEW_RETRIES:
-            return Command(goto=END, update={"review_attempts": attempts})
-        feedback = HumanMessage(
-            name="review_feedback",
-            content=(
-                "Your answer does not yet cover everything the user asked. Missing: "
-                f"{'; '.join(result.missing) or 'unspecified'}. Use the tools to fill these gaps, "
-                "or call ask_user if you need information from the user, then answer again."
-            ),
-        )
-        return Command(goto="agent", update={"review_attempts": attempts, "messages": [feedback]})
-
     builder = StateGraph(RetailPilot)
     builder.add_node("route", route)
     builder.add_node("agent", agent)
     builder.add_node("tools", run_tools)
     builder.add_node("ask_user", ask_user_node)
-    builder.add_node("review", review)
     builder.add_edge(START, "route")
     builder.add_edge("route", "agent")
-    builder.add_conditional_edges("agent", route_after_agent, {"review": "review", "tools": "tools", "ask_user": "ask_user"})
+    builder.add_conditional_edges("agent", route_after_agent, {"tools": "tools", "ask_user": "ask_user", END: END})
     builder.add_edge("tools", "agent")
     builder.add_edge("ask_user", "agent")
     return builder.compile(checkpointer=checkpointer)
@@ -286,7 +240,6 @@ class RetailPilotChat:
             "role": role or "customer",
             "date": now.date().isoformat(),
             "day": now.strftime("%A"),
-            "review_attempts": 0,
         }
         config = self._config(thread_id, role)
         output = await self.graph.ainvoke(graph_input, config)
@@ -321,7 +274,6 @@ class RetailPilotChat:
             "role": role or "customer",
             "date": now.date().isoformat(),
             "day": now.strftime("%A"),
-            "review_attempts": 0,
         }
         return self._stream(thread_id, graph_input, self._config(thread_id, role), title)
 
@@ -348,9 +300,6 @@ class RetailPilotChat:
             if "__interrupt__" in data:
                 question = data["__interrupt__"][0].value["question"]
             elif "tools" in data:
-                draft = ""
-                yield {"type": "reset"}
-            elif "review" in data and "messages" in (data["review"] or {}):
                 draft = ""
                 yield {"type": "reset"}
         role = (await self.graph.aget_state(config)).values.get("role")
