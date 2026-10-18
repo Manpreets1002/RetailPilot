@@ -17,7 +17,6 @@ from retailpilot.agent.chatbot import (
     ToolCallFailed,
     _last_user_text,
     _text,
-    _turn_transcript,
     tools_for_role,
 )
 from retailpilot.agent.mcp_wrapper import MCPToolkit, _unwrap
@@ -73,31 +72,6 @@ def test_customer_assistant_cannot_see_retailer_tools():
 def test_text_reads_plain_and_multi_part_content():
     assert _text(AIMessage(content="hi")) == "hi"
     assert _text(AIMessage(content=[{"type": "text", "text": "a"}, "b"])) == "ab"
-
-
-def test_last_user_text_skips_review_feedback():
-    messages = [
-        HumanMessage(content="first question"),
-        AIMessage(content="draft"),
-        HumanMessage(content="Your answer is missing a price", name="review_feedback"),
-    ]
-    assert _last_user_text(messages) == "first question"
-
-
-def test_turn_transcript_lists_tool_calls_and_truncates_results():
-    big = "x" * (chatbot.TOOL_RESULT_CHARS + 500)
-    messages = [
-        HumanMessage(content="q"),
-        AIMessage(content="", tool_calls=[{"name": "search_products", "args": {"city": "delhi"}, "id": "1"}]),
-        ToolMessage(content=big, tool_call_id="1"),
-    ]
-    transcript = _turn_transcript(messages)
-    assert "Tool calls: search_products" in transcript
-    assert "x" * (chatbot.TOOL_RESULT_CHARS + 1) not in transcript
-
-
-def test_turn_transcript_without_tool_use():
-    assert _turn_transcript([HumanMessage(content="q")]) == "(no tool results)"
 
 
 # ------------------------------------------------------------------ chat state rules

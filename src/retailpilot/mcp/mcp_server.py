@@ -903,6 +903,66 @@ async def customer_best_today(
     return {"category": category, "city": city, "items": items}
 
 
+@mcp.tool(
+    "customer_products",
+    description=(
+        "Every priced product in one city from the last crawl, for the shop. Pass category to list one category "
+        "(All products), or query to search by title, brand, features and specs, most relevant first. "
+        "Returns total and one page of items; use offset to page through."
+    ),
+    annotations=READ_ONLY,
+)
+async def customer_products(
+    city: str,
+    category: str | None = None,
+    query: str | None = None,
+    limit: int = 12,
+    offset: int = 0,
+) -> dict:
+    product_filter: dict[str, Any] = {}
+    if category:
+        pattern = {"$regex": f"^{re.escape(category)}$", "$options": "i"}
+        product_filter["$or"] = [{"breadcrumbs": pattern}, {"category_names": pattern}]
+    products = {p["asin"]: p for p in await db.products.find(product_filter).limit(CANDIDATE_CAP).to_list(None)}
+    offers = await db.city_offers.find({
+        "city": city,
+        "asin": {"$in": list(products)},
+        "price": {"$ne": None},
+    }).limit(CANDIDATE_CAP).to_list(None)
+
+    # Every word must appear somewhere in the product text; when none does, accept products that match half the words.
+    words = set(re.findall(r"[a-z0-9]+", (query or "").lower()))
+    scored = []
+    for o in offers:
+        product = products[o["asin"]]
+        title = (product.get("title") or "").lower()
+        text = _searchable_text(product)
+        hits = sum(1 for w in words if w in text)
+        title_hits = sum(1 for w in words if w in title)
+        scored.append((hits, title_hits, o, product))
+    if words:
+        strict = [row for row in scored if row[0] == len(words)]
+        loose = [row for row in scored if row[0] and row[0] >= math.ceil(len(words) / 2)]
+        scored = strict or loose
+
+    scored.sort(key=lambda row: (row[1], row[0], row[3].get("rating") or 0, row[3].get("rating_count") or 0), reverse=True)
+    limit = max(1, min(limit, MAX_LIMIT))
+    offset = max(0, offset)
+    if not scored:
+        latest = await db.city_offers.find_one({"city": city}, {"_id": 0, "listing_scraped_at": 1}, sort=[("listing_scraped_at", -1)])
+        return {
+            "city": city,
+            "category": category,
+            "query": query,
+            "total": 0,
+            "items": [],
+            "latest_observed_at": latest["listing_scraped_at"].isoformat() if latest and latest.get("listing_scraped_at") else None,
+            "note": "No priced products match in the last crawl for this city.",
+        }
+    page = [_card(o, p) for _, _, o, p in scored[offset: offset + limit]]
+    return {"city": city, "category": category, "query": query, "total": len(scored), "offset": offset, "items": page}
+
+
 if __name__ == "__main__":
     if os.getenv("MCP_TRANSPORT") == "http":
         mcp.settings.host = "0.0.0.0"

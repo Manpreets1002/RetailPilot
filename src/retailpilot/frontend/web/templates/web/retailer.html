@@ -8,10 +8,6 @@
 {% block content %}
 <nav class="navbar" aria-label="Primary navigation">
   <a class="brand" href="{% url 'landing' %}"><span class="brand-mark" aria-hidden="true">R</span><span>RetailPilot</span></a>
-  <div class="nav-links">
-    <span class="nav-item active" aria-current="page">Retailer dashboard</span>
-    <a class="nav-item" href="{% url 'customer' %}">Customer shop</a>
-  </div>
   {% if assistant %}
   <div class="nav-right">
     {% include "web/_assistant.html" %}

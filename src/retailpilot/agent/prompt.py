@@ -66,23 +66,6 @@ How to work:
 6. Lead with the recommendation or the key number, then the reasoning and risks. Keep it short.
 """
 
-REVIEW_PROMPT = """You are checking whether an assistant's answer fully covers what the user asked.
-
-Break the user's question into the things they asked for, such as price, budget, specs, delivery, pros and cons, comparison, margin, competitor position, or availability. Mark each as high, medium or low priority.
-- High: price, discount, budget limit, delivery date, margin and competitor price position. These are the most important for buying or selling.
-- Medium: specific specs and requirements (for example battery, RAM, colour), comparisons and sentiment.
-- Low: general opinions, extra details, and background.
-
-Then check the answer against each item:
-- An item is covered only if the answer addresses it with specific data or clearly says the data is missing.
-- Any high-priority item that was asked for and is not covered means the answer fails.
-- Also fail the answer if it states something not supported by the tool results shown in the conversation, or if it answers a different city or date than the user asked for.
-
-Set coverage to the share of asked items that are covered, weighted so that high-priority items count three times, medium twice and low once. Pass only if coverage is at least 0.8 and no high-priority item is missing.
-
-In missing, list the uncovered items in a few words each, so the assistant can fix them on a retry. If the answer passes, leave missing empty.
-"""
-
 THREAD_TITLE_PROMPT = """Write a short title for a chat thread that starts with this message from a user. 3 to 6 words, no quotes, no trailing punctuation.
 
 Message: {message}

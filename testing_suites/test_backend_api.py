@@ -135,6 +135,16 @@ def test_recommendations_clamp_the_limit(api):
     assert fake.calls[-1][1]["limit"] == 10
 
 
+def test_products_endpoint_calls_the_customer_products_tool(api):
+    client, fake = api
+    fake.tool_results["customer_products"] = {"total": 1, "items": [{"asin": "B0TESTA001", "title": "Laptop"}]}
+    body = client.get("/products", params={"city": "delhi", "q": "laptop", "offset": 12, "limit": 500}).json()
+    assert body["items"][0]["asin"] == "B0TESTA001"
+    tool_name, args = fake.calls[-1]
+    assert tool_name == "customer_products"
+    assert args == {"city": "delhi", "category": None, "query": "laptop", "limit": 50, "offset": 12}
+
+
 def test_interest_for_a_product_not_shown_is_not_found(api):
     client, fake = api
     fake.history.interest_ok = False

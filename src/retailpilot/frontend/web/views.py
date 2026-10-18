@@ -34,6 +34,13 @@ def _float(value: str | None, default: float) -> float:
         return default
 
 
+def _int(value: str | None, default: int) -> int:
+    try:
+        return int(value) if value not in (None, "") else default
+    except ValueError:
+        return default
+
+
 # ----------------------------------------------------------------- charts (Plotly figures as JSON for the browser)
 
 def _chart(fig: go.Figure, height: int, margin: dict | None = None) -> dict:
@@ -289,6 +296,22 @@ def api_recommendations(request: HttpRequest):
     try:
         return JsonResponse(get("/recommendations", session_id=shopper, category=request.GET.get("category", ""),
                                 city=request.GET.get("city", "delhi"), limit=5))
+    except BackendError as exc:
+        return _json_error(exc)
+
+
+@require_GET
+def api_products(request: HttpRequest):
+    query = request.GET.get("q", "").strip()[:80]
+    try:
+        return JsonResponse(get(
+            "/products",
+            city=request.GET.get("city", "delhi"),
+            category=request.GET.get("category") or None,
+            q=query or None,
+            limit=_int(request.GET.get("limit"), 12),
+            offset=_int(request.GET.get("offset"), 0),
+        ))
     except BackendError as exc:
         return _json_error(exc)
 

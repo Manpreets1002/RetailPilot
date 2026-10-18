@@ -119,6 +119,23 @@ def test_customer_best_returns_only_priced_products_from_the_last_crawl(run):
     assert sorted(i["asin"] for i in res["items"]) == sorted([sd.LAPTOP_A, sd.LAPTOP_B])
 
 
+def test_customer_products_lists_a_category_and_pages_through_it(run):
+    everything = run(ms.customer_products(city="delhi", category="Laptops", limit=1))
+    assert everything["total"] == 2 and len(everything["items"]) == 1
+    rest = run(ms.customer_products(city="delhi", category="Laptops", offset=1, limit=1))
+    assert {everything["items"][0]["asin"], rest["items"][0]["asin"]} == {sd.LAPTOP_A, sd.LAPTOP_B}
+
+
+def test_customer_products_search_puts_the_closest_title_first(run):
+    res = run(ms.customer_products(city="delhi", query="acer laptop"))
+    assert res["total"] == 1 and res["items"][0]["asin"] == sd.LAPTOP_A
+
+
+def test_customer_products_search_with_no_match_gives_a_note(run):
+    res = run(ms.customer_products(city="delhi", query="zzzz qqqq"))
+    assert res["total"] == 0 and res["items"] == [] and res["note"]
+
+
 def test_customer_best_honours_exclude_asins(run):
     res = run(ms.customer_best_today(category="Laptops", city="delhi", exclude_asins=[sd.LAPTOP_A]))
     assert [i["asin"] for i in res["items"]] == [sd.LAPTOP_B]

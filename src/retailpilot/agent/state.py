@@ -13,7 +13,6 @@ class RetailPilot(TypedDict):
     role: str
     date: str
     day: str
-    review_attempts: int
 
 
 class ThreadGeneration(BaseModel):

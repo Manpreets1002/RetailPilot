@@ -56,6 +56,18 @@ def test_customer_shop_has_city_picker_cart_and_assistant(client):
         assert marker in body, marker
 
 
+def test_customer_shop_has_no_switch_to_the_retailer_dashboard(client):
+    body = client.get("/customer/").content.decode()
+    assert reverse("retailer") not in body
+    assert 'id="shop-search-input"' in body and 'id="all-products"' in body
+
+
+def test_retailer_dashboard_has_no_switch_to_the_customer_shop(client, monkeypatch):
+    monkeypatch.setattr(analytics, "load", lambda: {"offers": [], "products": {}})
+    body = client.get("/retailer/").content.decode()
+    assert reverse("customer") not in body
+
+
 def test_retailer_page_explains_when_mongodb_is_unreachable(client, monkeypatch):
     def unreachable():
         raise ConnectionError("no server")
@@ -167,6 +179,25 @@ def test_interest_for_an_unshown_product_is_not_found(client, monkeypatch):
     response = client.post("/api/interest/", data=json.dumps({"asin": "B0TESTA001", "interest": "buy"}),
                            content_type="application/json")
     assert response.status_code == 404
+
+
+def test_products_endpoint_forwards_city_category_query_and_paging(client, monkeypatch):
+    recorder = Recorder({"items": [], "total": 0})
+    monkeypatch.setattr(views, "get", recorder)
+    client.get("/api/products/", {"city": "mumbai", "category": "Laptops", "offset": "12", "limit": "12"})
+    path, _, params = recorder.calls[-1]
+    assert path == "/products"
+    assert params == {"city": "mumbai", "category": "Laptops", "q": None, "limit": 12, "offset": 12}
+
+
+def test_products_search_trims_the_query_and_ignores_bad_numbers(client, monkeypatch):
+    recorder = Recorder({"items": [], "total": 0})
+    monkeypatch.setattr(views, "get", recorder)
+    client.get("/api/products/", {"q": "  headphones  ", "limit": "lots", "offset": ""})
+    _, _, params = recorder.calls[-1]
+    assert params["q"] == "headphones"
+    assert params["category"] is None
+    assert params["limit"] == 12 and params["offset"] == 0
 
 
 def test_json_endpoints_reject_the_wrong_http_method(client):
